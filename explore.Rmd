@@ -17,4 +17,22 @@ library(lubridate)
 library(stringr)
 ```
 
+## Table: scene_mbr_dim
+
+TODO
+
+## Table: scene_member_acct_dim
+
+TODO
+
+## Table: scene_pt_fact
+
+TODO
+
+## Table: scene_pt_tp_fact
+
+TODO
+
+## Table: iwd_time
+
 TODO

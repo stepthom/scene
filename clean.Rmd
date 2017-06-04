@@ -9,9 +9,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # Scene Data Cleaning
 
-This file gives information about the variables in "scene_mbr_dim" table This file contains information about the static parameters of the customers of Scene cards. It also incorporates the steps for cleaning the data and also provides observations/findings based on the exploratory analysis.
-
-This document also uses "tidyverse" package for data manipulation. Other packages include "lubridate" for date manipulation and  "stringr" for string manipulation. As a first stage, the required packages are loaded.
+Load required libraries.
 
 ```{r libraries}
 library(tidyverse)
@@ -19,7 +17,9 @@ library(lubridate)
 library(stringr)
 ```
 
-### Load the file
+## Table: scene_mbr_dim
+
+This file gives information about the variables in "scene_mbr_dim" table This file contains information about the static parameters of the customers of Scene cards. 
 
 ```{r input}
 in_path = '/global/project/queens-mma/scene-csv/full/raw/'
@@ -582,7 +582,7 @@ group_by(scene_mbr_dim, scene_acty_stat)%>%
 
 
 
-###Summary
+### scene_mbr_dim Summary
 
 Based on this data exploration, following variables can be used for data modelling. These variables have variations and data integrity
 
@@ -600,13 +600,13 @@ Based on this data exploration, following variables can be used for data modelli
 * Marital Status
   
 
-## Scene Points
+## Table: scene_pt_fact
 
 File "scene_pt_fact" contains the points transactions for Scene customers over a time period of December, 2006 to September, 2016. This file contains the points awarded to the customers, which can be due to financial transactions as well as due to certain non-financial events. Each transaction is associated with a timekey, which indicates the month of transaction. 
 
 This file analyses the variables of this file.As a next step, this file can be combined with "scene_mbr_dim" to get additional insights.
 
-## Load the files
+### Load the files
 
 The relevant files are loaded. 
 File 'iwd_time' is used to extract month and year from the timekey.
@@ -618,7 +618,6 @@ iwd_time <- read_csv(paste(in_path, 'iwd_tim.csv', sep=""))
 
  
 ### Variable Definitions and Exploration
-#### For scene_pt_fact
 
 There are two columns for customer keys just like
 
@@ -777,8 +776,18 @@ left_join(MonthlyTransactions,YearlyTransactions)%>%
 ```
 
 
-###Summary
+### Summary
 
 Based on this data exploration, transactions and points data can be used along with the time variable to gain understanding of the customers. 
 
+## Table: scene_member_acct_dim
 
+TODO
+
+## Table: scene_pt_tp_fact
+
+TODO
+
+## Table: iwd_time
+
+TODO
