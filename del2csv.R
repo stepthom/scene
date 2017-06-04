@@ -1,5 +1,12 @@
 library("data.table")
 
+# Actually, this script is no longer necessary. A better, faster way is to use the following shell command:
+# sed 's/\x01/,/g' scene_mbr_dim.del | 's/ *,/,/g' | sed 's/, +/,/g'  > ../../scene-csv/full/raw/scene_mbr_dim.csv
+# sed 's/\x01/,/g' scene_mbr_acct_dim.del | sed 's/ *,/,/g' | sed 's/, +/,/g' > ../../scene-csv/full/raw/scene_mbr_acct_dim.csv
+# sed 's/\x01/,/g' scene_pt_fact.del | sed 's/ *,/,/g' | sed 's/, +/,/g' > ../../scene-csv/full/raw/scene_pt_fact.csv
+# sed 's/\x01/,/g' scene_pt_tp_dim.del | sed 's/ *,/,/g' | sed 's/, +/,/g' > ../../scene-csv/full/raw/scene_pt_tp_dim.csv
+# sed 's/\x01/,/g' iwd_time.del | sed 's/ *,/,/g' | sed 's/, +/,/g' > ../../scene-csv/full/raw/iwd_time.csv
+
 
 
 #tbls = c("iwd_chnl", "iwd_pd_pln", "iwd_step_plan", "scene_mbr_hist_dim")

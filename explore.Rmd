@@ -1,0 +1,20 @@
+---
+title: "Scene Data Exploration"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Scene Data Exploration
+
+TODO
+
+```{r libraries}
+library(tidyverse)
+library(lubridate)
+library(stringr)
+```
+
+TODO

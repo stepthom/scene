@@ -1,15 +1,30 @@
+---
+title: "Scene Data Sampling"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
 library(tidyr)
 library(sparklyr)
 library(magrittr) # To give use the cool %<>% operator
+```
 
-tbls = c("scene_mbr_acct_dim", 
-         "scene_mbr_dim", "scene_pt_fact", "scene_pt_tp_dim", "iwd_time")
 
+```{r}
 in_path = '/global/project/queens-mma/scene-csv/full/raw/'
 out_path = '/global/project/queens-mma/scene-csv/sample03/raw'
+```
 
+
+```{r}
 tbl = 'scene_mbr_dim'
 mbr_dim = read_csv(paste(in_path, tbl, '.csv', sep=""))
+
 
 # Take a sample
 # For sparklyr, would need to use sdf_sample function here
@@ -17,17 +32,22 @@ mbr_dim2 = mbr_dim %>% sample_frac(.03, replace=FALSE)
 write_csv(mbr_dim2, paste(out_path, tbl, '.csv', sep=""))
 keys = unique(mbr_dim2$scene_mbr_key)
 acct_keys = unique(df2$scene_mbr_acct_key)
+```
 
+```{r}
 tbl = 'scene_pt_fact'
 pt_fact = read_csv(paste(in_path, tbl, '.csv', sep=""))
 pt_fact2 = pt_fact %>% filter(scene_mbr_key %in% keys)
 write_csv(pt_fact2, paste(out_path,tbl,'.csv',sep=""))
+```
 
+```{r}
 tbl = 'scene_mbr_acct_dim'
 mbr_acct_dim = read_csv(paste(in_path, tbl, '.csv', sep=""))
 mbr_acct_dim2 = mbr_acct_dim %>% filter(scene_mbr_acct_key %in% acct_keys)
 write_csv(mbr_acct_dim2, paste(out_path, tbl,'.csv',sep=""))
+```
 
 
 # Join the two main tables
-tran = join(pt_fact2, df2, by="scene_mbr_key")
+#tran = join(pt_fact2, df2, by="scene_mbr_key")

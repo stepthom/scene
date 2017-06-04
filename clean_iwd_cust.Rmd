@@ -1,0 +1,1062 @@
+---
+title: "Scene Scotiabank data"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Exploratory Analysis
+
+This file gives information about the variables in the data file "iwd_cust"" which populates customer static data. It also incorporates the steps for cleaning the data and also provides observations/findings based on the exploratory analysis.
+
+
+```{r libraries}
+library(tidyverse)
+library(lubridate)
+```
+
+### Loading the file
+
+Here the actual path of the file can be embedded:
+
+```{r input}
+in_path = '/global/project/queens-mma/scene-csv/full/raw/'
+iwd_cust <- read_csv(paste(in_path, 'iwd_cust.csv', sep="")) 
+```
+
+### Variable Definitions and Exploration
+
+1. Customer Key (cust_base_key)
+
+System generated integer which uniquely identifies a customer. This key consists of Customer Static Key (defined in the next point) and last three digits of this key is a version number, e.g. 000 is the 1st version, 001 is the 2nd version, etc. The version number is incremented by one each time there is a change in a significant attribute (e.g. Home Owner Status, Age, etc.). Attributes change relatively infrequently.
+
+Comment:
+This variable tracks the changes in the customer static data
+
+
+2. Customer Static Key (cust_key)
+
+The static portion of the Customer Key, i.e. it is the Customer Key excluding the version number which is the last two characters.
+
+Comment:
+This variable identifies a unique customer
+
+
+3. Customer Level (cust_lvl)
+
+Identifies the level in the Customer hierarchy that this record belongs to.
+
+Comment:
+All the entries in this database belong to a single customer heirarchy, i.e., customer. Hence, this variable may not be useful.
+
+
+4. Customer Variables Key (cust_vars_key)
+
+System generated integer which uniquely identifies the combination of additional customer attributes which apply to a specific customer at a specific point in time.
+
+Comment:
+This key is similar to Customer Key. However, it is system generated and is not defined clearly.
+
+
+5. Population Data Stamp (popn_dt)
+
+The date that the record was inserted into the Data Warehouse
+
+Comment:
+Plot of the populated date is as follows.
+
+```{r Population Date Stamp}
+ggplot(data=iwd_cust)+
+  geom_histogram(mapping = aes(x=popn_dt), bins=20)
+```
+
+As can be seen from the plot, data population started in 2001. It has grown over the time, possibly due to addition of new customers or changes in the customer data.
+
+
+6. All Customer Key (all_cust_key)
+
+Specifies the value of CUST_KEY (i.e. the unique customer identifier) representing the top level in the Customer hierarchy (All Customers)
+
+Comment:
+
+This is a duplicate field same as Customer Level (Field 3). All the entries in this database belong to a single All Customer Key of 100. Hence, this variable may not be useful.
+
+
+7. Date of Death (death_dt)
+
+For deceased customers, this is the date that they died. Must be a valid date. This field is null for living customers.
+
+Comments:
+
+There are three more fields which pertain to the death of the customers.
+
+Field 21/22: Individual Lifecycle Status Code (indv_lcst)/ Description (indv_lc_desc)
+
+A code which indicates the lifecycle status of a customer, e.g. alive, deceased, etc. and its description
+
+Fields 7, 21 and 22 contain identical information. However, as Field 7 contains date of death, it could be more useful.
+
+Field 50: Recent Deceased Flag (deceased_fl)
+
+Y/N flag which denotes whether the individual is deceased and still has Visa accounts that are open
+
+This field has some inconsistencies with the Fields 7, 21 and 22 as there are observations where death_dt indicates that the person is living but the person is tagged as deceased with deceased_fl.
+
+Such observations can be removed as they represent small proportion of population and the result is stored in a new dataframe.
+
+```{r Death Variables}
+filter(iwd_cust, ((death_dt=='NULL') & (deceased_fl=='Y')) )%>%
+  select(cust_base_key, death_dt, deceased_fl,indv_lc_desc)
+  
+iwd_cust_v1<-filter(iwd_cust, !((death_dt=='NULL') & (deceased_fl=='Y')) )
+
+summary(as.factor(iwd_cust_v1$indv_lc_desc))
+
+```
+
+
+8. Advertising Code (advg_code)
+10. Advertising Code Description (advg_desc)
+
+A code which indicates the customer`s preferred choice of advertising/marketing, e.g. Y=All marketing, N=Do not mail, 1=No brokerage, etc
+
+Textual description of the advertising code.
+
+Comments:
+
+91% of the customers are open to all marketing communication.
+
+```{r Advertising Code}
+summary(as.factor(iwd_cust_v1$advg_desc))
+pie <- ggplot(iwd_cust_v1, aes(x = factor(1), fill = factor(advg_desc))) +
+  geom_bar(width = 1)
+pie + coord_polar(theta = "y")
+
+```
+
+
+
+9. Annual Income Amount (anul_incm_amt)
+
+The customer`s annual income amount in dollars. Data Quality issue: this field is sourced only from the SPL (Scotia Plan Loans) system and the income amount is taken at the time of the loan application.
+
+Comments:
+
+Income field is in character format and is converted into integer format.
+There are around 30% missing entries.
+The remaining entries are converted into income bands by adding new column and the result is stored in a new file.
+The result is plotted as a bar graph.
+
+```{r Annual Income}
+iwd_cust_v2<-iwd_cust_v1
+iwd_cust_v2$anul_incm_amt<-parse_integer(iwd_cust_v2$anul_incm_amt)
+iwd_cust_v2$income_band=ifelse(iwd_cust_v2$anul_incm_amt=='NULL','NULL',(cut(iwd_cust_v2$anul_incm_amt, breaks = seq(0,100000, by=10000))))
+
+ggplot(data=iwd_cust_v2)+
+  geom_bar(mapping = aes(x=income_band))
+
+```
+
+
+The null observations can be imputed using various methods. One of the ways can be to use the pincodes.
+
+```{r Annual Income Pincode}
+by_pincode<-group_by(iwd_cust_v2,pst_code)  
+pincode_summary<-summarise(by_pincode,avg_income=mean(as.numeric(anul_incm_amt), rm.na=TRUE))
+
+iwd_cust_v2$anul_incm_amt_new<-iwd_cust_v2$anul_incm_amt
+iwd_cust_v2$anul_incm_amt_new[is.na(iwd_cust_v2$anul_incm_amt_new)]=pincode_summary[iwd_cust_v2$pst_code]$avg_income
+
+filter(iwd_cust_v2,is.na(anul_incm_amt))%>%
+  left_join(pincode_summary, by="pst_code")
+  
+```
+
+
+11. CIS Type Code (cis_cust_tp_code)
+12. CIS Type Description (cis_cust_tp_desc)
+
+A code which denotes the type of customer (e.g. private banking, retail, etc.) Sourced from the CIS system.
+
+Textual description for the CIS Type Code.
+
+Comments:
+
+Most customers are classified as Retail-Other
+
+```{r CIS Type}
+pie <- ggplot(iwd_cust_v2, aes(x = factor(1), fill = factor(cis_cust_tp_desc))) +
+  geom_bar(width = 1)
+pie + coord_polar(theta = "y")
+
+```
+
+
+13. Employment Status Code (emp_st)
+14. Employment Status Description (emp_st_desc)
+
+A code which indicates the customer`s status of employment, e.g. 1=Full Time, etc. Data Quality issue: this field is currently available only if the customer has a SPL Loan. 
+
+Textual description of the customer`s employment status.
+
+Comments: 
+This field is empty
+
+
+15. Customer Relationship Lifecycle Status Code (cust_lcst)
+16. Customer Relationship Lifecycle Status Description (cust_lc_desc)
+
+The status of the customer`s relationship with the Bank, e.g. Active, Former, etc
+
+Textual description of the Customer`s Relationship Lifecycle Status.
+
+Comments:
+5% are the former relationships which can be explored to find patterns.
+
+```{r Customer Relationship Lifecycle}
+pie <- ggplot(iwd_cust_v2, aes(x = factor(1), fill = factor(cust_lc_desc))) +
+  geom_bar(width = 1)
+pie + coord_polar(theta = "y")
+
+summary(as.factor(iwd_cust_v1$cust_lc_desc))
+
+```
+
+
+17. Gender Code (gndr_code)
+18. Gender Description (gndr_desc)
+
+A code which denotes the customer's gender, e.g. "F" = Female, etc.
+Textual description of the customer's gender, e.g. "Male", "Female".
+
+Comments:
+Gender can be combined with other variables to find patterns.
+Females are marginally higher in proportion to males.
+
+```{r Gender}
+ggplot(data=iwd_cust_v2)+
+  geom_bar(mapping = aes(x=gndr_desc))
+
+```
+
+
+19. Home Owner Code (hm_own_code)
+20. Home Owner Description (hm_own_desc)
+
+Indicates whether the customer owns a home.
+Textual description of the customer`s Home Owner Code.
+
+Comments:
+The proportion of these home owners who have taken mortgage from Scotiabank can be analyzed.
+
+~60% of the home ownership data is missing. Limited responses in 'No' column tends to indicate that people report home ownership when they have home. This may point that most of the 'unknown' home ownership could be 'No'.
+
+```{r Home Ownership}
+pie <- ggplot(iwd_cust_v2, aes(x = factor(1), fill = factor(hm_own_desc))) +
+  geom_bar(width = 1)
+pie + coord_polar(theta = "y")
+
+```
+
+
+21. Individual Lifecycle Status Code (indv_lcst) 
+Covered in Field 7
+22. Individual Lifecycle Status Description (indv_lc_desc)
+Covered in Field 7
+
+
+23. Language Code (lng_code)
+24. Language Description (lng_desc)
+
+The customer`s choice of language
+Textual description of the customer`s choice of language.
+
+Comments:
+English is the primary language
+
+```{r Language}
+ggplot(data=iwd_cust_v2)+
+  geom_bar(mapping = aes(x=lng_desc))
+  
+```
+
+
+25. Marital Status Code
+26. Marital Status Description
+
+A code which specifies the customer`s Marital Status. Data Quality issue: 35% of our customer records do not have valid Marital Status codes
+
+Textual description of the customer`s Marital Status.
+
+Comments:
+~12% of the relationship status data is missing
+
+As most of the home ownership data is missing, Unknown single and married form the largest segments. Limited responses in 'No' column tends to indicate that people report home ownership when they have home. This may point that most of the 'unknown' home ownership could be 'No'.
+
+```{r Relationship Status}
+pie <- ggplot(iwd_cust_v2, aes(x = factor(1), fill = factor(mar_st_desc))) +
+  geom_bar(width = 1)
+pie + coord_polar(theta = "y")
+
+ggplot(iwd_cust_v2) + 
+  geom_count(mapping = aes(x = hm_own_desc, y = mar_st_desc))
+
+ggplot(iwd_cust_v2) + 
+  geom_count(mapping = aes(x = gndr_desc, y = mar_st_desc))
+  
+```
+
+
+27. Occupation Code (ocp_code)
+28. Occupation Description (ocp_desc)
+
+A code indicating the customer`s occupation, e.g. 040 = Clerical, 050 = Managerial, etc. See Values. Data Quality issue: this field is available only from SPL (Scotia Plan Loan) system and CIS.
+
+Textual description of the customer`s Occupation Code.
+
+Comments:
+This field is not populated.
+
+
+29. Country Code (cntry_code)
+
+A code indicating the country in which the customer resides, ie. CA= Canada.
+
+Comments:
+Entire population from Canada
+
+```{r Country}
+pie <- ggplot(iwd_cust_v2, aes(x = factor(1), fill = factor(cntry_code))) +
+  geom_bar(width = 1)
+pie + coord_polar(theta = "y")
+```
+
+
+30.Employee/Staff Flag (emp_f)
+
+Y/N indicator which indicates whether the customer is a member of staff at the bank. Data Quality issue: 54% accuracy.
+
+Comments:
+This fiels is not populated
+
+
+31. Customer Relationship Start Date (cust_rel_strt_dt)
+
+The date that the customer`s relationship began with the Bank, either through prospecting or when an account was opened. Data Quality issue: 9% of customers do not have an open date on CIS.
+
+Comments:
+Visualization of data shows that some of the relationship start dates are early 1900s. Such data needs to be cleaned and relationship start date needs to be set to NA. The updated table is stored in a new dataframe.
+
+```{r Relationship Start Date}
+iwd_cust_v3<-iwd_cust_v2
+iwd_cust_v3$cust_rel_strt_dt<-parse_date(iwd_cust_v3$cust_rel_strt_dt)
+
+ggplot(data=iwd_cust_v3)+
+  geom_histogram(mapping = aes(x=cust_rel_strt_dt), bins=40)
+
+iwd_cust_v4<-iwd_cust_v3
+
+iwd_cust_v4$cust_rel_strt_dt[year(iwd_cust_v4$cust_rel_strt_dt)<1950]=NA
+  
+ggplot(data=iwd_cust_v4)+
+  geom_histogram(mapping = aes(x=cust_rel_strt_dt), bins=40)
+  
+```
+
+Once a customer data is input it is fequently updated, as can be seen from the concentration of entries
+
+```{r Relationship Updates}
+
+ggplot(data=iwd_cust_v4)+
+  geom_histogram(mapping = aes(x=(popn_dt-cust_rel_strt_dt)), bins=40)
+
+ggplot(data=iwd_cust_v4)+
+  geom_point(mapping = aes(x=popn_dt, y=cust_rel_strt_dt))
+  
+```
+
+
+32. Customer Description (cust_desc)
+
+In the Data Warehouse Strategic Database, no real identification of customers is allowed for privacy reasons. Therefore, this is a unique description of each customer record, composed of the Data Warehouse Customer Key.
+
+Comments:
+This field is similar to the Customer Key field
+
+
+33. Customer Origin Code (cust_origin_cd)
+
+A code which identifies the originating institution of the customer i.e. whether they originated from a BNS group branch, from a National Trust branch, or both. 
+
+Comments:
+Most of the database originated from BNS group branches
+
+```{r Customer Origin}
+pie <- ggplot(iwd_cust_v4, aes(x = factor(1), fill = factor(cust_origin_cd))) +
+  geom_bar(width = 1)
+pie + coord_polar(theta = "y")
+```
+
+
+34.Age of Customer (age)
+
+The age of the customer in full years.
+
+Comments:
+Age field is in character format and is converted into integer format.
+Most values present, less than 0.5% missing
+The ages are converted into age bands by adding new column and the result is stored in a new file.
+The result is plotted as a bar graph.
+
+```{r Age}
+iwd_cust_v4$age<-parse_integer(iwd_cust_v4$age)
+
+ggplot(iwd_cust_v4)+
+  geom_bar(mapping = aes(x=age))
+
+iwd_cust_v5<-iwd_cust_v4
+
+iwd_cust_v5$Age_Group=ifelse(iwd_cust_v5$age=='NULL','NULL',(cut(as.numeric(iwd_cust_v5$age), breaks = seq(0,100, by=10))))
+```
+
+Break up of age as per marital status and gender can be useful for prediction.
+
+```{r Age One}
+ggplot(data=iwd_cust_v5)+
+  geom_bar(mapping = aes(x=Age_Group, fill=gndr_desc))
+
+ggplot(data=iwd_cust_v5)+
+  geom_bar(mapping = aes(x=Age_Group, fill=mar_st_desc))
+  
+```
+
+
+35. CIS Banking Service Code (cis_bnk_srvc_code)
+
+A code which indicates which banking packages the customer signed up for.
+
+Comments:
+This field is may be OBSOLETE - and may be removed from the Customer Dimension table. When it is removed from the table, this field will be deleted from Metadata
+
+
+36. Last Closed Date (last_closed_dt)
+
+The date that an account has been closed or became dormant.
+
+Comments:
+
+As the field is not in the 'date' format it was first converted to 'date' format
+
+```{r Closed date}
+summary(as.factor(iwd_cust_v5$last_closed_dt))
+
+iwd_cust_v6<-iwd_cust_v5
+
+iwd_cust_v6$last_closed_dt<-parse_date(iwd_cust_v6$last_closed_dt)
+
+```
+
+There is discrepancy between “Last Closed Date” and “Customer lifecycle” as some entries have last closed dates, but are having "Active" relationship. These discrepant entries were removed.
+
+```{r Closed Date Cleaning}
+
+iwd_cust_v6<-filter(iwd_cust_v6,!((!is.na(last_closed_dt))&(cust_lc_desc=='Active Relationship')))
+
+```
+
+
+37. Customer Tenure (cust_tenure)
+
+The number of whole years that the customer has been with the Bank, based on the Customer Relationship Start Date. 
+
+Comments:
+This field seems wrong as it does not tally with Customer Relationship Starting Date. Either of these fields must be selected. Adding Customer Relationship Starting Date to customer tenure should give present date (or some single date). However, this is not the case in the given data.
+
+```{r Customer Tenure}
+ggplot(iwd_cust_v6)+
+  stat_count(mapping=aes(x=(year(cust_rel_strt_dt)+cust_tenure)))
+  
+```
+
+
+38. Canadian Postal Code (pst_code)
+
+The customer`s Canadian Postal Code, first three characters only expressed as ANA format.
+
+Comments:
+These Postal Codes can be plotted on the map to derive conclusion from their distribution.
+
+```{r }
+
+summary(as.factor(iwd_cust_v6$pst_code))
+```
+
+
+
+39. Survivor Customer Combine Date (surv_cust_comb_dt)
+40. Survivor Customer Key (surv_cust_key)
+
+"Prior to Jan/00, Mutual Fund customer data in the Data Warehouse was sourced from the Mutual Funds system.
+However, from Jan/00 onwards, Mutual Fund customer profiles (now included in CIS) are being sourced from CIS.
+Incoming CIS Mutual Fund customers/accounts will be matched will existing ones in the Warehouse, and the CIS
+customer will become the surviving customer. The date on which this merge occurs is then used to set the
+Surviving Customer Combined Date of the non-surviving (old) customer."
+
+Comments:
+These fields are not populated.
+
+
+41.Secondary Account Holder Flag (second_only_fl)
+
+A flag which indicates whether every customer to account relationship is a secondary account holder only.
+
+Comments:
+90% of the accounts do not have secondary flag. 
+This data could have data integrity issues as there are multiple accounts for most customers.
+
+```{r Secondary Accounts}
+pie <- ggplot(iwd_cust_v6, aes(x = factor(1), fill = factor(second_only_fl))) +
+  geom_bar(width = 1)
+pie + coord_polar(theta = "y")
+
+```
+
+
+42. Customer Account Count (cust_acct_cnt)
+
+All accounts related to a customer regardless of whether the account is involved in profit apportioning.
+
+Comments:
+
+As the data is not in the integer format, it is first converted to integer
+
+```{r Account Count}
+iwd_cust_v6$cust_acct_cnt<- parse_integer(iwd_cust_v6$cust_acct_cnt)
+```
+
+2 seems to be the most common number of accounts. 
+Home owners seem to have more accounts.
+
+```{r Account Count One}
+ggplot(iwd_cust_v6, aes(x = cust_acct_cnt, fill=gndr_code)) +
+  geom_bar()
+
+ggplot(iwd_cust_v6, aes(x = cust_acct_cnt, fill=hm_own_desc)) +
+  geom_bar()
+
+```  
+
+
+43. Customer Responsible Transit (cust_resp_transt)
+44. Customer Responsible Vice President's Office (cust_resp_vpo)
+
+An identification number of the branch or other organization unit offering retail products or services which is identified as responsible for the customer relationship based on the highest ranking account held by a customer.
+
+A numeric code which specifies the Vice President's Office applicable to the Customer's Responsible Transit.
+
+
+Comments:
+Top branches such as # 80002 and and top VPO such as #48 can be explored.
+
+```{r Responsible transit vpo}
+summary(as.factor(iwd_cust_v6$cust_resp_transt))
+
+summary(as.factor(iwd_cust_v6$cust_resp_vpo))
+
+ggplot(iwd_cust_v6, aes(x = cust_resp_transt)) +
+  geom_bar()
+
+ggplot(iwd_cust_v6, aes(x = cust_resp_vpo)) +
+  geom_bar()
+
+```  
+
+
+
+45. Customer Responsible Regional Office (cust_resp_ro)
+
+A numeric code which specifies the Regional Office applicable to the Customer's Responsible Transit.
+
+Comments:
+
+4,5 and 6 are the largest regional offices each accounting for ~25% of the customers
+
+```{r Region}
+pie <- ggplot(iwd_cust_v6, aes(x = factor(1), fill = factor(cust_resp_ro))) +
+  geom_bar(width = 1)
+pie + coord_polar(theta = "y")
+
+```
+
+
+
+46. RO Assigned Flag (ro_assgn_f)
+47. RO Never Assigned Flag (ro_never_assgn_f)
+48. Relationship Officer Key (ro_key)
+
+A Y/N Flag to indicate if a relationship officer is presently assigned to this customer.
+
+A Y/N Flag to indicate if this customer has ever had an RO assigned to them.
+
+A system generated integer which uniquely identifies the Relationship Officer.
+
+
+Comments:
+
+Majority of the relationships assigned are the old relationships. Hence, it may be possible that the recent relationships are not updated.
+Relationship Officer Key can be used to identify and link these relationships.
+
+```{r RO assigned}
+ggplot(iwd_cust_v6, aes(x = ro_assgn_f, fill=ro_never_assgn_f)) +
+  geom_bar()
+```
+
+
+
+49. Customer Status Code (cust_stat_code)
+50. Customer Status Description (cust_stat_desc)
+
+Is a code which denotes the status of customer (e.g., business credit, open, etc.). If the code has the value of 'BC', it identifies retail customers with no retail products.Valid Values: BC = Business Credit (Client), CL = Closed, DR = Dormant, PR = Prospect, OP = Open
+
+Description of Customer Status Code
+
+Comments:
+
+20% of the accounts are not assigned customer status and are either ‘unknown’ or ‘NA’.
+
+```{r Customer Status new}
+summary(as.factor(iwd_cust_v6$cust_stat_desc))
+
+pie <- ggplot(iwd_cust_v6, aes(x = factor(1), fill = factor(cust_stat_desc))) +
+     geom_bar(width = 1)
+pie + coord_polar(theta = "y")
+
+```
+
+From the Customer Lifecycle Code, it seems that the most of the ‘unknown’ can be moved to ‘Open’ status.
+
+```{r Customer Status one}
+ggplot(iwd_cust_v6, aes(x = cust_stat_desc, fill=cust_lc_desc)) +
+  geom_bar()
+  
+```  
+
+
+51. Strategy Number (stragy_num)
+
+"Strategy Number. A random number, drawn from the uniform distribution on the interval (0,1) assigned to each customer that is stored in the customer Data Warehouse.
+Each customer in the Data Warehouse has a random number assigned to them, known as the Strategy Number. This number gets assigned to each customer once and only once, and it will never change as long as that customer exists in the Data Warehouse. All new customers will be assigned a strategy number (regardless of status) the first time that the customer's information is loaded into the Data Warehouse.
+If a customer closes all accounts and later re-opens at least one (even if the former accounts have been purged from the DW) the old strategy number will be used if the old customer id and base-key are used. However, if the same customer gets re-inserted into the Data Warehouse and is assigned a different customer id, then a new strategy number will be created.This number (has also been added to the Marketing Data Mart (MDM).
+CAUTION: A one-time attachment of the strategy number has been done for the Oct/03 load, to the current version of the customer in Star. Historical records have not had a strategy number assigned."
+
+
+Comments:
+
+This field can be used to find the unique customers.
+
+```{r Unique}
+
+filter(iwd_cust_v6,!is.null(stragy_num))%>%
+  group_by(stragy_num)%>%
+  summarise(count=n())
+  
+```  
+
+
+Other fields in the table are not populated or have 'null' entries.
+
+
+###Summary
+
+Based on this data exploration, following variables can be used for data modelling. These variables have variations and data integrity
+
+* Income
+* Gender
+* Home ownership
+* Marital status
+* Customer relationship start date
+* Age
+* Postal codes
+* Number of accounts
+* Customer account branch and VP office
+* Regional office
+
+
+## Exploratory analysis of the accounts data
+
+
+
+This file gives information about the variables in the data file "iwf_cust_acct"" which populates transactional data of the customers. Each customer has multiple entries depending upon the number of transactions. This file provides observations/findings about the customers based on the exploratory analysis of the customer accounts data.
+
+
+## Loading and joining the files
+
+The customer account file "iwf_cust_acct" has to be joined with the customer data file "iwd_cust" to connect the customers' account activity with their static demographic data. Another file "iwd_time" has also be joined with these two files as it contains the timestamp details associated with the account activities in "iwf_cust_acct" file.
+
+The following code prompts the users to load relevant files and joins the files together.
+
+```{r input}
+iwf_cust_acct <- read_csv(paste(in_path, 'iwf_cust_acct.csv', sep=""))
+iwd_time <- read_csv(paste(in_path, 'iwd_time.csv', sep=""))
+```
+
+```{r join}
+joined<-left_join(iwf_cust_acct,iwd_cust, by =("cust_base_key"="cust_key"))
+joined_v1<-left_join(joined,iwd_time)
+summary(joined_v1)
+```
+
+
+###Variable definitions and exploration
+
+1. Customer Key (cust_base_key)
+
+System generated integer which uniquely identifies a customer. This key consists of Customer Static Key (defined in the next point) and last three digits of this key is a version number, e.g. 000 is the 1st version, 001 is the 2nd version, etc. The version number is incremented by one each time there is a change in a significant attribute (e.g. Home Owner Status, Age, etc.). Attributes change relatively infrequently.
+
+Comment:
+This variable tracks the changes in the customer static data. Unique customers in the database can be found as follows.
+
+```{r unique}
+group_by(joined_v1, cust_base_key.x)%>%
+  summarise(count=n())
+```
+
+
+2. Time Description (time_desc)
+
+A unique description of a time period composed of the date in MM/DD/YYYY format plus the fiscal quarter period. E.g. "11/01/1997 - Fiscal Q1/98".
+
+Comments:
+By combining "iwd_time" file, we can get the information about the timings of the transactions and can extract periodic trends as well as trends over time.
+
+Following code puts the months variable in order, which can be used for detecting monthly trends during the year.
+
+```{r month_order}
+months<-c("January","February","March","April","May","June","July","August","September","October","November","December")
+joined_v1$mo_clndr_code<-factor(joined_v1$mo_clndr_code,levels=months, ordered=TRUE)
+
+```
+
+The code below groups the transactions by month. 
+Transaction data is from Aug, 2010 to July, 2016
+Monthly transactions have been increasing over the years
+
+```{r monthly}
+MonthlyTransactions <- filter(joined_v1,anul_clndr_code %in% c(2011:2015))%>%
+  group_by(anul_clndr_code,mo_clndr_code)%>%
+  summarise(MonthlyTransactions=n())
+```
+
+Annual transactions are as follows.
+
+```{r annual}
+YearlyTransactions <-  group_by(MonthlyTransactions,anul_clndr_code)%>%
+  summarise(YearlyTransactions=sum(MonthlyTransactions))
+```
+
+To find if there is any periodicity during the year, monthly transactions are normalized by diving by corresponding annual transactions.
+There is clear monthly trned in the data with december being the most transacted month
+
+```{r periodicity}
+left_join(MonthlyTransactions,YearlyTransactions)%>%
+  mutate(MonthlyNormalized=MonthlyTransactions/YearlyTransactions)%>%
+  ggplot( mapping = aes(x=mo_clndr_code,y=MonthlyNormalized, group=anul_clndr_code))+
+  geom_smooth(se=FALSE)
+```
+
+
+3. Customer Relationship Variables Key (cust_rel_key)
+
+System generated integer which uniquely identifies the combination of customer relationship attributes which applies to a specific customer/account relationship at a specific point in time.
+
+Comments:
+Key 1300 appears ~70% in the dataset.
+
+```{r Relationship}
+summary(factor(joined_v1$cust_rel_key))
+
+ggplot(joined_v1, aes(x = as.factor(cust_rel_key))) +
+  geom_bar()
+```
+
+
+4. Product Key (pd_pln_key)
+
+A system generated integer which uniquely identifies each Product record
+
+Comments:
+14700 is the largest product plan followed by 3500.
+
+```{r Product Key}
+summary(factor(joined_v1$pd_pln_key))
+
+group_by(joined_v1, pd_pln_key)%>%
+  summarise(count=n())%>%
+  filter(count>10000)%>%
+  ggplot(aes(x = as.factor(pd_pln_key),y=count)) +
+  geom_bar(stat = "identity")
+```
+
+
+5. Customer Variables Key (cust_vars_key)
+
+System generated integer which uniquely identifies the combination of additional customer attributes which apply to a specific customer at a specific point in time.
+
+Comments:
+This count is 2650, which is ~200 greater than customer key, which may indicate that only customer attributes have changed over time.
+
+```{r CustomersVar}
+group_by(joined_v1, cust_vars_key.x)%>%
+  summarise(count=n())
+```
+
+
+6. Organization Units (ou_key)
+
+A system generated integer which uniquely identifies each of the Bank`s Organization Units.
+
+Comments:
+Each customer deals with two account units on average.
+
+```{r Organization Units}
+summary(factor(joined_v1$ou_key))
+
+group_by(joined_v1, cust_base_key.x, ou_key)%>%
+  summarise(count=n())
+```
+
+
+7. Household Variables Key (hh_vars_key)
+  
+System generated integer which uniquely identifies the combination of additional household attributes which apply to a specific household at a specific point in time.
+
+Comments:
+There are 403 households in the data.
+
+```{r Households}
+summary(factor(joined_v1$hh_vars_key))
+
+group_by(joined_v1, hh_vars_key)%>%
+  summarise(count=n())%>%
+  arrange(desc(count))
+```
+
+
+8. Days to Maturity (days_mat_key)
+
+A system generated integer that uniquely identifies a specific number of days prior to maturity for certain products (ie. mortgages, term deposits, registered retirement savings plan, scotia plan loan or on-line loan).
+
+Comments:
+90% of the data is not applible indicated by "-200". It is replaced by NA using the following code.
+
+```{r Days to Maturity}
+summary(factor(joined_v1$days_mat_key))
+joined_v1$days_mat_key[joined_v1$days_mat_key==-200]<-NA
+```
+
+
+9. Household Key (hh_key)
+12. Household Base Key (hh_base_key)
+
+"A system generated integer which uniquely identifies a household to the Data Warehouse system. 
+Derivation: The last three digits of this key is a version number, e.g. 000 is the 1st version, etc. The version number is incremented by one each time there is a change in a significant attribute (e.g. Behaviour Segment Code, etc.). Attributes change relatively infrequently."
+
+The static portion of the Household Key, i.e. it is the Household Key excluding the version number which is the last three characters.
+
+Comments:
+Some customers have multiple household keys.
+
+```{r HouseholdKey}
+summary(factor(joined_v1$hh_base_key))
+
+group_by(joined_v1, cust_base_key.x, hh_base_key)%>%
+  summarise(count=n())%>%
+  arrange(desc(count))
+```
+
+
+10. Customer Key (cust_key)
+
+System generated integer which uniquely identifies a customer. Derivation:The last three digits of this key is a version number, e.g. 000 is the 1st version, 001 is the 2nd version, etc. The version number is incremented by one each time there is a change in a significant attribute (e.g. Home Owner Status, Age, etc.). Attributes change relatively infrequently.
+
+Comments:
+This is linked to field 1 and is same as defined in "iwd_cust"
+
+
+
+11. Account Base Key (acct_key)
+
+The static portion of the Account Key, i.e. it is the Account Key excluding the version number which is the last three digits.
+
+Comments:
+Each customer has on average 10 accounts
+
+```{r Accounts}
+group_by(joined_v1, cust_base_key.x, acct_base_key)%>%
+  summarise(count=n())%>%
+  arrange(cust_base_key.x)
+```
+
+Distribution of number of accounts appears lognormal
+
+```{r Accounts Distribution}
+group_by(joined_v1,cust_base_key.x)%>%
+  summarise(count=n_distinct(acct_base_key))%>%
+  arrange(desc(count))%>%
+  ggplot(aes(x=count))+
+  geom_histogram(binwidth = 1)
+```
+
+
+The next variables are related to the account balances and profitability. Each of these fields are defined below and then analysed together.
+
+
+13. Account Balance (acct_bal)
+
+A decimal representing the spot balance amount for an account as at month end.
+
+14.Account Profit (acct_prft_amt)
+
+A decimal representing the amount profit assigned to an account using a profit formula specific to the product.
+
+15.Apportioned Balance
+
+A decimal representing the portion of the balance of account assigned to a specifc customer as determined by a specific relationship to an account. This amount is determined using the current account balance and dividing it equally over all of the current account relationships. If a customer identified by a current customer/account relationship is not in the Warehouse (i.e. commercial customer), that portion is left unassigned.
+
+16. Apportioned Profit
+
+A decimal representing the portion of the profit of account assigned to a specific customer as determined by a specific relationship to an account. This amount is determined using the current account calculated profit and dividing it equally over all of the current account relationships. If a customer identified by a current customer/account relationship is not in the Warehouse (ie. commercial customer), that portion is left unassigned.
+
+17. Annual Account Profit Amount
+
+A decimal representing a dollar (Canadian) value to the nearest cent for annual calculated profit by adding together the current month's profit plus the 11 previous monthly profit amounts. For accounts opened for less than 12 months, this would be adjusted based on the number of months the account has been opened for (e.g. if 6 months then add together 6 months and mutiply by 2).
+
+18. Annual Apportioned Profit
+
+A decimal representing the portion of the amount of annual profit assigned to a specifc customer as determined by a specific relationship to an account. This amount is determined using the current annual account profit and dividing it equally over all of the current account relationships. If a customer identified by a current customer/account relationship is not in the Warehouse (i.e. commercial customer), that portion is left unassigned.
+
+
+Since all these fields are numerical, they are first converted to double using the following code.
+
+```{r ToDouble}
+joined_v1$acct_bal<-parse_double(joined_v1$acct_bal)
+joined_v1$acct_prft_amt<-parse_double(joined_v1$acct_prft_amt)
+joined_v1$aprtnd_bal<-parse_double(joined_v1$aprtnd_bal)
+joined_v1$aprtnd_prft_amt<-parse_double(joined_v1$aprtnd_prft_amt)
+joined_v1$anul_prft_amt<-parse_double(joined_v1$anul_prft_amt)
+joined_v1$anul_aprtnd_prft<-parse_double(joined_v1$anul_aprtnd_prft)
+```
+
+Comments:
+Of 23000 accounts, around 13000 (55%) do not have any balance. This corresponds to account types which do not have cash balances, e.g. mutual funds, Real Estate Investments, etc.
+
+Some accounts also have negative balances. These are most likely interest bearing savings and chequing accounts or cash credit accounts which can have negative balances.
+
+Remaining acounts have negative exponential distribution of balances, as can be seen below (outliers have been excluded)
+
+```{r Balances}
+
+group_by(joined_v1, cust_base_key.x, acct_base_key)%>%
+  summarise(count=n(),
+            balance=sum(acct_bal))%>%
+  arrange(cust_base_key.x)%>%
+  filter((!is.na(balance))&(balance>0)&(balance<1000000))%>%
+  ggplot(aes(x=balance))+
+  geom_histogram()
+```
+
+Profitability of the accounts shows both positive and negative values. However, profits can be combined at the customer level to understand overall profitability.
+
+Larget number of customers have negative cumulative profits.
+
+```{r CustomerProfits}
+
+group_by(joined_v1, cust_base_key.x)%>%
+  summarise(count=n(),
+            profit=sum(acct_prft_amt, na.rm=TRUE))%>%
+  arrange(cust_base_key.x)%>%
+  filter((!is.na(profit))&(abs(profit)<10000))%>%
+  ggplot(aes(x=profit))+
+  geom_histogram(binwidth=100)
+```
+
+
+Positive profits also have negative exponential distribution. (Outliers have been excluded)
+
+```{r Profits}
+group_by(joined_v1, cust_base_key.x, acct_base_key)%>%
+  summarise(count=n(),
+            profit=sum(acct_prft_amt, na.rm=TRUE))%>%
+  arrange(cust_base_key.x)%>%
+  filter((!is.na(profit))&(profit>0)&(profit<10000))%>%
+  ggplot(aes(x=profit))+
+  geom_histogram(binwidth=100)  
+```
+
+
+Distribution of annual profits is similar.
+
+```{r AnnualProfit}
+group_by(joined_v1, cust_base_key.x, acct_base_key)%>%
+  summarise(count=n(),
+            annualprofit=sum(anul_prft_amt))%>%
+  arrange(cust_base_key.x)%>%
+  filter((!is.na(annualprofit))&(annualprofit>0)&(annualprofit<50000))%>%
+  ggplot(aes(x=annualprofit))+
+  geom_histogram()
+```
+
+
+
+19. Account Lifecycle Code (acct_lcst)
+
+Existing field from OWSTAR.IWD_ACCT_CORE lookup by ACCT_KEY 
+
+Comments:
+A accounts for 90% of the accounts
+
+```{r LifecycleCode}
+summary(factor(joined_v1$acct_lcst))
+
+ggplot(joined_v1, aes(x = factor(1), fill = factor(acct_lcst))) +
+  geom_bar(width = 1)+ 
+  coord_polar(theta = "y")
+```
+
+
+20. Primary Customer Flag (prim_cust_f)
+
+Existing field from OWSTAR.IWD_STAT_CUST_REL lookup by CUST_REL_KEY 
+
+Comments:
+P accounts for 80% of accounts
+
+```{r PrimaryCustomer}
+summary(factor(joined_v1$prim_cust_f))
+
+ggplot(joined_v1, aes(x = factor(1), fill = factor(prim_cust_f))) +
+  geom_bar(width = 1)+ 
+  coord_polar(theta = "y")
+```
+
+
+21. Summary Service Code (sum_srvc_code)
+
+Existing field from OWSTAR.IWD_PD_PLN lookup by PD_PLN_KEY
+
+Comments:
+18% CC, 24% chquing, 16% defined contribution.
+Each of this account type can be analysed separately.
+
+```{r ServiceCode}
+summary(factor(joined_v1$sum_srvc_code))
+
+group_by(joined_v1,sum_srvc_code)%>%
+  summarise(count=n(),
+            proportion=count/754965,
+            balance=sum(acct_bal),
+            profit=sum(acct_prft_amt, na.rm=TRUE),
+            annualprofit=sum(anul_prft_amt))
+```
+
