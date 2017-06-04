@@ -1,0 +1,396 @@
+---
+title: "Customer Accounts Data"
+author: "Ninad"
+date: "May 27, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Exploratory analysis of the accounts data
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+
+This file gives information about the variables in the data file "iwf_cust_acct"" which populates transactional data of the customers. Each customer has multiple entries depending upon the number of transactions. This file provides observations/findings about the customers based on the exploratory analysis of the customer accounts data.
+
+This document primarily uses "tidyverse" package for data manipulation. As a first stage, the required packages are loaded.
+
+```{libraries}
+library(tidyverse)
+library(lubridate)
+```
+
+## Loading and joining the files
+
+The customer account file "iwf_cust_acct" has to be joined with the customer data file "iwd_cust" to connect the customers' account activity with their static demographic data. Another file "iwd_time" has also be joined with these two files as it contains the timestamp details associated with the account activities in "iwf_cust_acct" file.
+
+The following code prompts the users to load relevant files and joins the files together.
+
+```{input}
+iwf_cust_acct <- read_csv("file.choose()")   #select file iwf_cust_acct
+iwd_cust <- read_csv("file.choose()")   #select file iwd_cust
+iwd_time <- read_csv("file.choose()")   #select file iwd_time
+```
+
+```{join}
+joined<-left_join(iwf_cust_acct,iwd_cust, by =("cust_base_key"="cust_key"))
+joined_v1<-left_join(joined,iwd_time)
+summary(joined_v1)
+```
+
+
+###Variable definitions and exploration
+
+1. Customer Key (cust_base_key)
+
+System generated integer which uniquely identifies a customer. This key consists of Customer Static Key (defined in the next point) and last three digits of this key is a version number, e.g. 000 is the 1st version, 001 is the 2nd version, etc. The version number is incremented by one each time there is a change in a significant attribute (e.g. Home Owner Status, Age, etc.). Attributes change relatively infrequently.
+
+Comment:
+This variable tracks the changes in the customer static data. Unique customers in the database can be found as follows.
+
+```{unique}
+group_by(joined_v1, cust_base_key.x)%>%
+  summarise(count=n())
+```
+
+
+2. Time Description (time_desc)
+
+A unique description of a time period composed of the date in MM/DD/YYYY format plus the fiscal quarter period. E.g. "11/01/1997 - Fiscal Q1/98".
+
+Comments:
+By combining "iwd_time" file, we can get the information about the timings of the transactions and can extract periodic trends as well as trends over time.
+
+Following code puts the months variable in order, which can be used for detecting monthly trends during the year.
+
+```{month_order}
+months<-c("January","February","March","April","May","June","July","August","September","October","November","December")
+joined_v1$mo_clndr_code<-factor(joined_v1$mo_clndr_code,levels=months, ordered=TRUE)
+
+```
+
+The code below groups the transactions by month. 
+Transaction data is from Aug, 2010 to July, 2016
+Monthly transactions have been increasing over the years
+
+```{monthly}
+MonthlyTransactions <- filter(joined_v1,anul_clndr_code %in% c(2011:2015))%>%
+  group_by(anul_clndr_code,mo_clndr_code)%>%
+  summarise(MonthlyTransactions=n())
+```
+
+Annual transactions are as follows.
+
+```{annual}
+YearlyTransactions <-  group_by(MonthlyTransactions,anul_clndr_code)%>%
+  summarise(YearlyTransactions=sum(MonthlyTransactions))
+```
+
+To find if there is any periodicity during the year, monthly transactions are normalized by diving by corresponding annual transactions.
+There is clear monthly trned in the data with december being the most transacted month
+
+```{periodicity}
+left_join(MonthlyTransactions,YearlyTransactions)%>%
+  mutate(MonthlyNormalized=MonthlyTransactions/YearlyTransactions)%>%
+  ggplot( mapping = aes(x=mo_clndr_code,y=MonthlyNormalized, group=anul_clndr_code))+
+  geom_smooth(se=FALSE)
+```
+
+
+3. Customer Relationship Variables Key (cust_rel_key)
+
+System generated integer which uniquely identifies the combination of customer relationship attributes which applies to a specific customer/account relationship at a specific point in time.
+
+Comments:
+Key 1300 appears ~70% in the dataset.
+
+```{Relationship}
+summary(factor(joined_v1$cust_rel_key))
+
+ggplot(joined_v1, aes(x = as.factor(cust_rel_key))) +
+  geom_bar()
+```
+
+
+4. Product Key (pd_pln_key)
+
+A system generated integer which uniquely identifies each Product record
+
+Comments:
+14700 is the largest product plan followed by 3500.
+
+```{Product Key}
+summary(factor(joined_v1$pd_pln_key))
+
+group_by(joined_v1, pd_pln_key)%>%
+  summarise(count=n())%>%
+  filter(count>10000)%>%
+  ggplot(aes(x = as.factor(pd_pln_key),y=count)) +
+  geom_bar(stat = "identity")
+```
+
+
+5. Customer Variables Key (cust_vars_key)
+
+System generated integer which uniquely identifies the combination of additional customer attributes which apply to a specific customer at a specific point in time.
+
+Comments:
+This count is 2650, which is ~200 greater than customer key, which may indicate that only customer attributes have changed over time.
+
+```{CustomersVar}
+group_by(joined_v1, cust_vars_key.x)%>%
+  summarise(count=n())
+```
+
+
+6. Organization Units (ou_key)
+
+A system generated integer which uniquely identifies each of the Bank`s Organization Units.
+
+Comments:
+Each customer deals with two account units on average.
+
+```{Organization Units}
+summary(factor(joined_v1$ou_key))
+
+group_by(joined_v1, cust_base_key.x, ou_key)%>%
+  summarise(count=n())
+```
+
+
+7. Household Variables Key (hh_vars_key)
+  
+System generated integer which uniquely identifies the combination of additional household attributes which apply to a specific household at a specific point in time.
+
+Comments:
+There are 403 households in the data.
+
+```{Households}
+summary(factor(joined_v1$hh_vars_key))
+
+group_by(joined_v1, hh_vars_key)%>%
+  summarise(count=n())%>%
+  arrange(desc(count))
+```
+
+
+8. Days to Maturity (days_mat_key)
+
+A system generated integer that uniquely identifies a specific number of days prior to maturity for certain products (ie. mortgages, term deposits, registered retirement savings plan, scotia plan loan or on-line loan).
+
+Comments:
+90% of the data is not applible indicated by "-200". It is replaced by NA using the following code.
+
+```{Days to Maturity}
+summary(factor(joined_v1$days_mat_key))
+joined_v1$days_mat_key[joined_v1$days_mat_key==-200]<-NA
+```
+
+
+9. Household Key (hh_key)
+12. Household Base Key (hh_base_key)
+
+"A system generated integer which uniquely identifies a household to the Data Warehouse system. 
+Derivation: The last three digits of this key is a version number, e.g. 000 is the 1st version, etc. The version number is incremented by one each time there is a change in a significant attribute (e.g. Behaviour Segment Code, etc.). Attributes change relatively infrequently."
+
+The static portion of the Household Key, i.e. it is the Household Key excluding the version number which is the last three characters.
+
+Comments:
+Some customers have multiple household keys.
+
+```{HouseholdKey}
+summary(factor(joined_v1$hh_base_key))
+
+group_by(joined_v1, cust_base_key.x, hh_base_key)%>%
+  summarise(count=n())%>%
+  arrange(desc(count))
+```
+
+
+10. Customer Key (cust_key)
+
+System generated integer which uniquely identifies a customer. Derivation:The last three digits of this key is a version number, e.g. 000 is the 1st version, 001 is the 2nd version, etc. The version number is incremented by one each time there is a change in a significant attribute (e.g. Home Owner Status, Age, etc.). Attributes change relatively infrequently.
+
+Comments:
+This is linked to field 1 and is same as defined in "iwd_cust"
+
+
+
+11. Account Base Key (acct_key)
+
+The static portion of the Account Key, i.e. it is the Account Key excluding the version number which is the last three digits.
+
+Comments:
+Each customer has on average 10 accounts
+
+```{Accounts}
+group_by(joined_v1, cust_base_key.x, acct_base_key)%>%
+  summarise(count=n())%>%
+  arrange(cust_base_key.x)
+```
+
+Distribution of number of accounts appears lognormal
+
+```{Accounts Distribution}
+group_by(joined_v1,cust_base_key.x)%>%
+  summarise(count=n_distinct(acct_base_key))%>%
+  arrange(desc(count))%>%
+  ggplot(aes(x=count))+
+  geom_histogram(binwidth = 1)
+```
+
+
+The next variables are related to the account balances and profitability. Each of these fields are defined below and then analysed together.
+
+
+13. Account Balance (acct_bal)
+
+A decimal representing the spot balance amount for an account as at month end.
+
+14.Account Profit (acct_prft_amt)
+
+A decimal representing the amount profit assigned to an account using a profit formula specific to the product.
+
+15.Apportioned Balance
+
+A decimal representing the portion of the balance of account assigned to a specifc customer as determined by a specific relationship to an account. This amount is determined using the current account balance and dividing it equally over all of the current account relationships. If a customer identified by a current customer/account relationship is not in the Warehouse (i.e. commercial customer), that portion is left unassigned.
+
+16. Apportioned Profit
+
+A decimal representing the portion of the profit of account assigned to a specific customer as determined by a specific relationship to an account. This amount is determined using the current account calculated profit and dividing it equally over all of the current account relationships. If a customer identified by a current customer/account relationship is not in the Warehouse (ie. commercial customer), that portion is left unassigned.
+
+17. Annual Account Profit Amount
+
+A decimal representing a dollar (Canadian) value to the nearest cent for annual calculated profit by adding together the current month's profit plus the 11 previous monthly profit amounts. For accounts opened for less than 12 months, this would be adjusted based on the number of months the account has been opened for (e.g. if 6 months then add together 6 months and mutiply by 2).
+
+18. Annual Apportioned Profit
+
+A decimal representing the portion of the amount of annual profit assigned to a specifc customer as determined by a specific relationship to an account. This amount is determined using the current annual account profit and dividing it equally over all of the current account relationships. If a customer identified by a current customer/account relationship is not in the Warehouse (i.e. commercial customer), that portion is left unassigned.
+
+
+Since all these fields are numerical, they are first converted to double using the following code.
+
+```{ToDouble}
+joined_v1$acct_bal<-parse_double(joined_v1$acct_bal)
+joined_v1$acct_prft_amt<-parse_double(joined_v1$acct_prft_amt)
+joined_v1$aprtnd_bal<-parse_double(joined_v1$aprtnd_bal)
+joined_v1$aprtnd_prft_amt<-parse_double(joined_v1$aprtnd_prft_amt)
+joined_v1$anul_prft_amt<-parse_double(joined_v1$anul_prft_amt)
+joined_v1$anul_aprtnd_prft<-parse_double(joined_v1$anul_aprtnd_prft)
+```
+
+Comments:
+Of 23000 accounts, around 13000 (55%) do not have any balance. This corresponds to account types which do not have cash balances, e.g. mutual funds, Real Estate Investments, etc.
+
+Some accounts also have negative balances. These are most likely interest bearing savings and chequing accounts or cash credit accounts which can have negative balances.
+
+Remaining acounts have negative exponential distribution of balances, as can be seen below (outliers have been excluded)
+
+```{Balances}
+
+group_by(joined_v1, cust_base_key.x, acct_base_key)%>%
+  summarise(count=n(),
+            balance=sum(acct_bal))%>%
+  arrange(cust_base_key.x)%>%
+  filter((!is.na(balance))&(balance>0)&(balance<1000000))%>%
+  ggplot(aes(x=balance))+
+  geom_histogram()
+```
+
+Profitability of the accounts shows both positive and negative values. However, profits can be combined at the customer level to understand overall profitability.
+
+Larget number of customers have negative cumulative profits.
+
+```{CustomerProfits}
+
+group_by(joined_v1, cust_base_key.x)%>%
+  summarise(count=n(),
+            profit=sum(acct_prft_amt, na.rm=TRUE))%>%
+  arrange(cust_base_key.x)%>%
+  filter((!is.na(profit))&(abs(profit)<10000))%>%
+  ggplot(aes(x=profit))+
+  geom_histogram(binwidth=100)
+```
+
+
+Positive profits also have negative exponential distribution. (Outliers have been excluded)
+
+```{Profits}
+group_by(joined_v1, cust_base_key.x, acct_base_key)%>%
+  summarise(count=n(),
+            profit=sum(acct_prft_amt, na.rm=TRUE))%>%
+  arrange(cust_base_key.x)%>%
+  filter((!is.na(profit))&(profit>0)&(profit<10000))%>%
+  ggplot(aes(x=profit))+
+  geom_histogram(binwidth=100)  
+```
+
+
+Distribution of annual profits is similar.
+
+```{AnnualProfit}
+group_by(joined_v1, cust_base_key.x, acct_base_key)%>%
+  summarise(count=n(),
+            annualprofit=sum(anul_prft_amt))%>%
+  arrange(cust_base_key.x)%>%
+  filter((!is.na(annualprofit))&(annualprofit>0)&(annualprofit<50000))%>%
+  ggplot(aes(x=annualprofit))+
+  geom_histogram()
+```
+
+
+
+19. Account Lifecycle Code (acct_lcst)
+
+Existing field from OWSTAR.IWD_ACCT_CORE lookup by ACCT_KEY 
+
+Comments:
+A accounts for 90% of the accounts
+
+```{LifecycleCode}
+summary(factor(joined_v1$acct_lcst))
+
+ggplot(joined_v1, aes(x = factor(1), fill = factor(acct_lcst))) +
+  geom_bar(width = 1)+ 
+  coord_polar(theta = "y")
+```
+
+
+20. Primary Customer Flag (prim_cust_f)
+
+Existing field from OWSTAR.IWD_STAT_CUST_REL lookup by CUST_REL_KEY 
+
+Comments:
+P accounts for 80% of accounts
+
+```{PrimaryCustomer}
+summary(factor(joined_v1$prim_cust_f))
+
+ggplot(joined_v1, aes(x = factor(1), fill = factor(prim_cust_f))) +
+  geom_bar(width = 1)+ 
+  coord_polar(theta = "y")
+```
+
+
+21. Summary Service Code (sum_srvc_code)
+
+Existing field from OWSTAR.IWD_PD_PLN lookup by PD_PLN_KEY
+
+Comments:
+18% CC, 24% chquing, 16% defined contribution.
+Each of this account type can be analysed separately.
+
+```{ServiceCode}
+summary(factor(joined_v1$sum_srvc_code))
+
+group_by(joined_v1,sum_srvc_code)%>%
+  summarise(count=n(),
+            proportion=count/754965,
+            balance=sum(acct_bal),
+            profit=sum(acct_prft_amt, na.rm=TRUE),
+            annualprofit=sum(anul_prft_amt))
+```
+

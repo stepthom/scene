@@ -1,0 +1,202 @@
+---
+title: "Scene_Points"
+author: "Ninad"
+date: "May 31, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Scene Points
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+File "scene_pt_fact" contains the points transactions for Scene customers over a time period of December, 2006 to September, 2016. This file contains the points awarded to the customers, which can be due to financial transactions as well as due to certain non-financial events. Each transaction is associated with a timekey, which indicates the month of transaction. 
+
+This file analyses the variables of this file.As a next step, this file can be combined with "scene_mbr_dim" to get additional insights.
+
+This document also uses "tidyverse" package for data manipulation. As a first stage, the required packages are loaded.
+
+```{libraries}
+library(tidyverse)
+```
+
+## Loading the files
+
+The relevant files are loaded. 
+File 'iwd_time' is used to extract month and year from the timekey.
+
+```{input}
+scene_pt_fact <- read_csv(file.choose())  # Select file "scene_pt_fact"
+scene_mbr_dim <-read_csv(file.choose())  # Select file "scene_mbr_dim"
+iwd_time <- read_csv(file.choose())  # Select file "iwd_time"
+```
+
+ 
+### Variable Definitions and Exploration
+#### For scene_pt_fact
+
+There are two columns for customer keys just like
+
+1. Scene Membership Account Key (scene_mbr_acct_key)
+2. Scene Member Key (scene_mbr_key)
+ 
+Comments:
+These keys are unique for each customer, i.e., there is one-to-one relationship between these keys. Hence, either of these can be used as an identifier during data analysis.
+
+
+3. Points (pt)
+
+Number of points earned
+
+Comments:
+These are number of points earned. They may be 
+1.  linked to a financial transaction, in which case transaction column will have dollar value 
+OR
+2.  linked to an event (such as new account, referral bonus, etc), in which case the transaction column will have NULL
+
+This column and the next column for transactiona are explored and analysed together.
+
+
+
+4. Transaction Amount (txn_amt)
+
+Comments:
+This is the transaction amount associated with a points transaction. It may be NULL or can have dollar value as explained earlier.
+
+This transaction amount is first converted to double.
+
+```{TxnAmt}
+scene_pt_fact$txn_amt <- parse_double(scene_pt_fact$txn_amt)
+```
+
+There are 5515 customers in the 'tiny' database, which have wide range of transactions and points.
+```{Summary}
+summary<-
+group_by(scene_pt_fact, scene_mbr_acct_key)%>%
+  summarise(number_of_txns=n(),
+            total_points= sum(pt),
+            total_txn_amt= sum(txn_amt,na.rm=TRUE))%>%
+  arrange(desc(total_points))
+```
+
+The number of transactions show negative exponential distribution.
+
+Total points show a spike near zero, especially there are over 500 customers are 250 points. This indicates that there are customers which were entered in the database but they did not accumulate points. Bonus points on first registration are likely to be 250.
+
+There are ~200 customers whose transaction amount is very high, above $100,000
+~39% customers have transaction amount as zero. Indicating that these customers may not have used the card at all.
+
+```{Distribution}
+summary%>%
+  ggplot(aes(x=number_of_txns))+
+  geom_histogram(bins = 100)
+
+summary%>%
+  ggplot(aes(x=total_points))+
+  geom_histogram(bins = 100)
+  
+
+summary%>%  
+  filter(total_txn_amt==0 & total_points<500)%>%
+  ggplot(aes(x=total_points))+
+  geom_histogram(bins = 1000)  
+  
+summary%>%
+  ggplot(aes(x=total_txn_amt))+
+  geom_histogram(bins = 100)  
+```
+
+
+
+5. Scene Point Type Key (scene_pt_tp_key)
+
+A unique identifier for a point type.
+
+Comments:
+Though description of the point types is not given, inferences can be drawn from the nature of transactions.
+
+Point type 18 appears in 35% of transactions. It appears that on Point Type 18 transaction, 1 point is earned for every $5 of spending
+
+Point type 4 appears is 29% of transactions. As there are no dollar transaction amounts associated with this type, this could be bonus points awarded for each transaction.
+
+Point type 5 appears in 9% of transactions. There are no dollar transaction amounts associated with this type and the points are in negative. This indicates that these could be points redemption transactions.
+
+Point type 162 appears 5% of times and appears to be high value customers as 1 point is earned for each dollar of transaction. Customers having these transactions may be having premium cards.
+
+Point type 36001 appears similar to Point type 18
+
+Point type 2 appears around same number of time as customers and has value of 250. There are no dollar transaction amounts associated with this type. This could be account opening bonus points.
+
+```{PointType}
+group_by(scene_pt_fact, scene_pt_tp_key)%>%
+  summarise(count=n(),
+            percent = count/length(scene_pt_fact$scene_pt_tp_key)*100,
+            points= mean(pt),
+            txn_type=mean(txn_amt))%>%
+  arrange(desc(count))
+```
+
+
+
+6. Scene Membership Account Activity Key (scene_mbr_acct_acty_key)
+
+The unique identifier for Account history.
+
+Comments:
+This variable has value '-1' in all observations and cannot be used for prediction.
+
+
+
+7. Monthly Time Key (mth_tm_key)
+
+The surrogate key for the Time Dimension entity. It is used to represent a predefined time period within the EDW. 
+
+Comments:
+Joining the points table with the time table to get month and year associated with each of the transaction.
+
+```{JOining}
+scene_pt_fact <-
+ left_join(scene_pt_fact, iwd_time, by = c("mth_tm_key"="time_key"))
+```
+
+Converting the months column 'mo_clndr_code' to ordered factor.
+
+```{Months}
+scene_pt_fact$mo_clndr_code <- 
+factor(scene_pt_fact$mo_clndr_code, levels = months, ordered = TRUE)
+```
+
+Normalising the monthly transaction amount as well as points does not show any strong cyclicality except for higher total points and transaction amounts towards year end.
+
+```{Trend}
+YearlyTransactions <-  group_by(MonthlyTransactions,anul_clndr_code)%>%
+  summarise(YearlyTransactions=sum(total_txn_amt))
+
+left_join(MonthlyTransactions,YearlyTransactions)%>%
+  mutate(MonthlyNormalized=total_txn_amt/YearlyTransactions)%>%
+  group_by(anul_clndr_code,mo_clndr_code)%>%
+  ggplot( mapping = aes(x=mo_clndr_code,y=MonthlyNormalized, 
+                        group=anul_clndr_code, colour=anul_clndr_code))+
+  geom_line()
+
+
+YearlyPoints <-  group_by(MonthlyTransactions,anul_clndr_code)%>%
+  summarise(YearlyTransactions=sum(total_points))
+
+left_join(MonthlyTransactions,YearlyTransactions)%>%
+  mutate(MonthlyNormalized=total_points/YearlyTransactions)%>%
+  group_by(anul_clndr_code,mo_clndr_code)%>%
+  ggplot( mapping = aes(x=mo_clndr_code,y=MonthlyNormalized, 
+                        group=anul_clndr_code, colour=anul_clndr_code))+
+  geom_line()
+```
+
+
+###Summary
+
+Based on this data exploration, transactions and points data can be used along with the time variable to gain understanding of the customers. 
+
+

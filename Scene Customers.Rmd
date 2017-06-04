@@ -1,0 +1,606 @@
+---
+title: "Scene Customers"
+author: "Ninad"
+date: "May 27, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Scene CUstomers profile
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+This file gives information about the variables in "scene_mbr_dim" file. This file contains information about the static parameters of the customers of Scene cards. It also incorporates the steps for cleaning the data and also provides observations/findings based on the exploratory analysis.
+
+This document also uses "tidyverse" package for data manipulation. Other packages include "lubridate" for date manipulation and  "stringr" for string manipulation. As a first stage, the required packages are loaded.
+
+```{libraries}
+library(tidyverse)
+library(lubridate)
+library(stringr)
+```
+
+### Loading the file
+
+The relevant file- "scene_mbr_dim" is loaded.
+
+```{input}
+scene_mbr_dim <-read_csv(file.choose())  # Select file "scene_mbr_dim"
+```
+
+
+### Variable Definitions and Exploration
+
+There are two columns for customer keys
+
+1. Scene Membership Account Key (scene_mbr_acct_key)
+
+The unique identifier for Scene Membership Account
+
+2. Scene Member Key (scene_mbr_key)
+
+The unique identifier for the Scene Customer. This is the Surrogate key generated using Sequence Generators.
+ 
+Comments:
+These keys are unique for each customer, i.e., there is one-to-one relationship between these keys. Hence, either of these can be used as an identifier during data analysis.
+
+There are 5573 unique customers, thus on average each customer having 2 keys.
+
+```{MemberKey}
+summary(as.factor(scene_mbr_dim$scene_mbr_key))
+
+group_by(scene_mbr_dim, scene_mbr_acct_key, scene_mbr_key)%>%
+  summarise(count=n())
+```
+
+
+3. Scene Member Sequence Number (scene_mbr_seq_num)
+
+Comments: 
+This variable is not properly defined in metadata. From the dataset, it appears that this number represents a unique entry for each customer and is used for customer record history. Whenever a member is entered in a database, s/he is assigned scene_mbr_seq_num as '1'. At the next change, this variable is changed to '2' and so on. Thus, '1' represents the first entry for the customer.
+
+```{MemberSequence}
+scene_mbr_dim%>%
+  arrange(scene_mbr_key,scene_mbr_seq_num)
+```
+
+Because of this definition of sequence number, 50% of the records are '1', while one third is '2'. Higher sequence numbers exponentially drop off. Sequence numbers can be used in combination with next parameters to  understand the trends in the number of new customers and their renewal timelines.
+
+```{SequenceNumber}
+ggplot(scene_mbr_dim, aes(x = factor(1), fill = factor(scene_mbr_seq_num))) +
+  geom_bar(width = 1)+ 
+  coord_polar(theta = "y")
+```
+
+
+4. Effective From Timestamp (eff_from_tmstamp)
+5. Effective To Timestamp (eff_to_tmstamp)
+
+Comments:
+These timestamps represent the timeperiod for which each sequence number is applicable. 
+
+To see all the new customers,i.e, sequence number '1', there is huge sprike in March, 2010, with over 2000 entries. This must be the first time when the database was created. (bins=77 corresponds to the months in the database)
+
+```{NewCustomers}
+
+scene_mbr_dim%>%
+  filter(scene_mbr_seq_num==1)%>%
+  ggplot(aes(x=eff_from_tmstamp))+
+  geom_histogram(bins = 77)
+```
+
+Removing these initial entries and plotting again shows that new customers have declined since 2014. 
+
+During the year, there appears cyclicality when there seem to be spikes around December/January as well as summer months.
+
+```{NewCustomers1}
+
+scene_mbr_dim%>%
+  filter(scene_mbr_seq_num==1 & eff_from_tmstamp>ymd(20100305))%>%
+  ggplot(aes(x=eff_from_tmstamp))+
+  geom_histogram(bins = 77)
+```
+
+Plotting of data with sequence numbers such as '2' and '3' shows when the entries were updated.
+
+In plot of sequence number '2' there are two spikes in March, 2011 and March, 2012 indicating that the records created in March, 2010 were updated in bulk after 1 and 2 years respectively.
+
+```{Renewals}
+scene_mbr_dim%>%
+  filter(scene_mbr_seq_num==2)%>%
+  ggplot(aes(x=eff_from_tmstamp))+
+  geom_histogram(bins = 77)
+```
+
+For all subsequent sequence numbers, there is spike around March 2012 indicating that there were updates in 2012, but subsequently there have been only small number of renewals.
+
+```{Renewals3}
+scene_mbr_dim%>%
+  filter(scene_mbr_seq_num==3)%>%
+  ggplot(aes(x=eff_from_tmstamp))+
+  geom_histogram(bins = 77)
+```
+
+To find if the accounts have been renewed regularly, maximum of the "effective to timestamp" was analysed and it was found that 25% of the customers were never renewed after their expiry in March 2012. 
+
+Also the proportion of customers which has "effective to timestamp" after January 1, 2016 was less than 20%.
+
+```{EndDate}
+scene_mbr_dim%>%
+group_by(scene_mbr_acct_key)%>%
+  summarise(EndDate=max(eff_to_tmstamp))%>%
+  ggplot(aes(x=EndDate))+
+  geom_histogram(bins = 77)
+
+scene_mbr_dim%>%
+group_by(scene_mbr_acct_key)%>%
+  summarise(EndDate=max(eff_to_tmstamp))%>%
+  filter(EndDate>ymd(20160101))
+```
+
+Each sequence number can be effective for any range of values. However, the typical values are 1 year and two years.
+
+```{DateDiff}
+
+scene_mbr_dim%>%
+  mutate(date_diff=eff_to_tmstamp-eff_from_tmstamp)%>%
+  select(date_diff)%>%
+  ggplot(aes(x=date_diff/24))+
+  geom_histogram()
+```
+
+
+
+6. Birthdate (brth_dt)
+
+Birthday of the Scene member Year only
+
+Comments:
+
+The distribution of birth years is positively skewed with peak around 1990.
+There are entries with birth years as 1900. As these are likely to be wrong entries, replacing them with NA.
+
+```{BirthDate}
+summary(as.factor(scene_mbr_dim$brth_dt))
+
+ggplot(data = scene_mbr_dim, mapping = aes(x=brth_dt))+
+  geom_bar()
+
+scene_mbr_dim$brth_dt[scene_mbr_dim$brth_dt==1900]<-NA
+```
+
+
+7. Personal Postal Code (psnl_post_cd)
+
+The postal code of the address. First 3 characters only
+
+Comments:
+L5N is has the largest number of Scene customers
+
+```{PostalCodes}
+group_by(scene_mbr_dim, scene_mbr_acct_key, psnl_post_cd)%>%
+  summarise(count=n())%>%
+  group_by(psnl_post_cd)%>%
+  summarise(count1=n())%>%
+  arrange(desc(count1))
+```
+
+
+Plotting the data on the map using external file which maps postal codes to latitude and longitude.
+
+```{PostalMap}
+
+postal_codes<-read_csv(file.choose()) #get file ca_postal_codes
+
+colnames(postal_codes)[1]<-"PostalCode" # renaming column
+
+scene_mbr_dim<-
+left_join(scene_mbr_dim, postal_codes, by=c("psnl_post_cd"="PostalCode")) 
+#joining with main file
+
+ggplot(scene_mbr_dim, aes(x=Longitude, y=Latitude))+
+  geom_point()
+```
+
+
+
+8. Personal Province State Code (psnl_prov_state_cd)
+
+The state/province where the customer resides.
+
+Comments:
+Ontario accounts for over half of the members
+
+```{Province}
+summary(as.factor(scene_mbr_dim$psnl_prov_state_cd))
+
+ggplot(scene_mbr_dim, aes(x = factor(1), fill = factor(psnl_prov_state_cd))) +
+  geom_bar(width = 1)+ 
+  coord_polar(theta = "y")
+```  
+  
+
+9. Personal City (psnl_city)
+
+The city of the address.
+ 
+Comments:
+City names appear in different variations, e.g. "Toronto", "toronto","TORONTO". Hence, data cleaning is required where names have to be standardized prior to analysis.
+Converting all city names to small case to have uniform names.
+Montreal also appears as "Montréal" and Quebec also appears as "Québec". Hence, additional cleaning is required.
+
+```{CityNames}
+scene_mbr_dim$psnl_city <-
+str_to_lower(scene_mbr_dim$psnl_city)
+
+scene_mbr_dim<-
+  mutate(scene_mbr_dim, psnl_city=ifelse(grepl('Montréal',scene_mbr_dim$psnl_city,                                                ignore.case = TRUE),'montreal',psnl_city))
+  
+scene_mbr_dim<-
+  mutate(scene_mbr_dim, 
+  psnl_city=ifelse(grepl('Québec',scene_mbr_dim$psnl_city, 
+                          ignore.case = TRUE),'quebec',psnl_city))  
+```
+
+10% of the customers are from Toronto
+Additional 10% customers are from Mississauga, Brampton, North York, Scarorough
+
+```{CityNames1}
+group_by(scene_mbr_dim, psnl_city)%>%
+  summarise(count= n())%>%
+  arrange(desc(count))
+```
+
+
+
+10. Personal Country Code (psnl_cntry_cd)
+
+The country code of the address.
+
+Comments:
+All customers are from Canada
+
+
+
+11. Delivery Mode Type Code (dlvy_mode_tp_cd)
+
+Comments:
+All values are NULL
+
+
+
+12. Kill Word Flag (kill_word_f)
+
+Comments:
+Alll values are NULL
+
+
+
+13. Web Access Flag (web_acss_f)
+
+Indicates if the customer can access the web site.
+
+Comments:
+All values are 0.
+
+
+
+14. Suspended Flag (suspended_f)
+
+Indicates whether the customer's login has been suspended or not.
+
+Comments:
+3.7% customers have been suspended
+
+```{Suspended}
+summary(as.factor(scene_mbr_dim$suspended_f))
+```
+
+
+
+15. Household Income Reference Key (hh_incm_ref_key)
+16. Household Income Description (hh_incm_desc)
+
+Household income key and its description. It shows income ranges.
+
+Comments:
+85% of data is unknown or is not provided by the customers.
+This data can be imputed based on the external data and Postal Codes
+
+```{Income}
+group_by(scene_mbr_dim, hh_incm_desc)%>%
+  summarise(count=n(),
+            proportion= (count/length(scene_mbr_dim$hh_incm_desc)))
+```
+
+
+
+17. Program Head About From Input (pgm_hd_abt_from_input) 
+18. Program Head About From Reference Key (pgm_hd_abt_from_ref_key)
+19. Program Head About From Description (pgm_hd_abt_from_desc)
+
+Program Head About From Input and Reference Key.
+
+Comments:
+This includes fields which tell where the customer heard about the Scene program. First two fields (17 and 18) include fields like Facebook, Website, Internet, Friends, etc, while Field 19 gives generic classification with only 5 possible fields, viz., Friend/Family, Theatre, Branch, Advertising and Other.
+
+99% of the data for Fields 17 and 18 is missing.
+However, Field 19 has lower proportion of data missing and can be used for predictions. In Field 19, ~two thirds of data is missing.
+
+```{HeardFrom}
+group_by(scene_mbr_dim, pgm_hd_abt_from_input)%>%
+  summarise(count=n())%>%
+  arrange(desc(count))
+  
+group_by(scene_mbr_dim, pgm_hd_abt_from_desc)%>%
+  summarise(count=n())%>%
+  arrange(desc(count))
+
+scene_mbr_dim%>%
+  ggplot(aes(x = factor(1), fill = factor(pgm_hd_abt_from_desc))) +
+  geom_bar(width = 1)+ 
+  coord_polar(theta = "y")
+  
+```
+
+  
+
+20. Gender Type Reference Key (gndr_tp_ref_key)
+21. Gender Type Description (gndr_desc)
+
+Gender type.
+
+Comments:
+56% of the data is females.
+
+```{Gender}
+summary(as.factor(scene_mbr_dim$gndr_desc))
+```
+
+
+22. Preferred Location Reference Key (prefrd_loctn_ref_key)
+23. Preferred Location Description (prefrd_loctn_desc)
+
+Preferred location of the theatre for the movie
+
+Comments:
+More than half of the data is unavailable.
+Scotiabank Theatre in Toronto and Cineplex Odeon South Edmonton are rated the highest among the preferred theatres.
+Exact address of the theatres can be combined with the postal codes of the customers to derive more insights.
+
+```{PreferredTheatre}
+group_by(scene_mbr_dim, prefrd_loctn_desc)%>%
+  summarise(count=n_distinct(scene_mbr_key))%>%
+  arrange(desc(count))
+
+scene_mbr_dim%>%
+  filter(prefrd_loctn_desc!='Unknown')%>%
+  group_by(psnl_city, prefrd_loctn_desc)%>%
+  summarise(count=n_distinct(scene_mbr_acct_key))%>%
+  arrange(desc(count))  
+```
+
+
+
+24. Email Preference Reference Key (email_prefnc_ref_key)
+25. Email Preference Description (email_prefnc_desc)
+
+Preferred format for emails
+
+Comments:
+78% customers prefer HTML emails while preference of 17% is not known.
+
+```{Emails}
+group_by(scene_mbr_dim, email_prefnc_desc)%>%
+  summarise(count=n())%>%
+  arrange(desc(count))
+```
+
+
+
+26. Education level Type Reference Key (ed_lvl_tp_ref_key)
+27. Education level Type Description  (ed_lvl_desc)
+
+Education level of the customers.
+
+Comments:
+70% of the data is missing. 
+
+```{Education}
+group_by(scene_mbr_dim, ed_lvl_desc)%>%
+  summarise(count=n())%>%
+  arrange(desc(count))
+```
+
+
+
+28. Preferred Show Time Reference Key (prefrd_show_tm_ref_key)
+29. Preferred Show Time Description (prefrd_show_tm_desc) 
+
+Preferred Show Time.
+
+Comments:
+58% of the data is missing
+Of the people who have responded, 7 pm show is preferred by 39%
+
+```{PreferredTime}
+group_by(scene_mbr_dim, prefrd_show_tm_desc)%>%
+  summarise(count=n())%>%
+  arrange(desc(count))
+```
+
+The fields are ordered using the following code.
+
+```{OrderedTime}
+show_time <- c("1:00pm","2:00pm","3:00pm","4:00pm","5:00pm","6:00pm","7:00pm",
+               "8:00pm","9:00pm","10:00pm","11:00pm","12 midnight")
+
+scene_mbr_dim$prefrd_show_tm_desc<-factor(scene_mbr_dim$prefrd_show_tm_desc,
+                                             levels=show_time, ordered=TRUE)
+```
+
+40% of customers in Markham and Winnipeg prefer show timings before 6 pm. On the other hand, over 90% of customers in Saskatoon prefer show after 6 pm.
+
+These preference can be used for sceduling shows as well as pricing them based on the demand at different times in each city.
+
+```{PreferredTimeCity}
+group_by(scene_mbr_dim, psnl_city)%>%
+  summarise(count= n())%>%
+  arrange(desc(count))%>%
+  filter(count>100)%>%
+  left_join(scene_mbr_dim)%>%
+  filter(prefrd_show_tm_desc!='Unknown')%>%
+  ggplot()+
+  geom_bar(mapping=aes(x=psnl_city, fill = prefrd_show_tm_desc), position="fill")
+```
+
+
+
+30. Number Of Household People Reference Key (num_of_hh_pple_ref_key)
+31. Number Of Household People Description (num_of_hh_pple_desc)
+
+Number Of Household People.
+
+Comments:
+60% of the data is missing.
+Of the overall households, 15% are single person households.
+
+```{HouseholdPpl}
+group_by(scene_mbr_dim, num_of_hh_pple_desc)%>%
+  summarise(count=n())%>%
+  arrange(desc(count))
+```
+
+
+There is no significant variation in the preferred timing based on the number of people in the household. However, this variable can be used for classification as it can indicate the number of kids in the household and children can be targetted with specific genre. It can also indicate potential profit opportunity size.
+
+```{HHppl}
+scene_mbr_dim%>%
+  filter(prefrd_show_tm_desc!='Unknown')%>%
+  ggplot()+
+  geom_bar(mapping=aes(x=num_of_hh_pple_desc, fill = prefrd_show_tm_desc), position="fill")
+```
+
+
+
+32. Movie Going Frequency Reference Key (movie_gng_frq_ref_key)
+33. Movie Going Frequency Description (movie_gng_frq_ref_desc)
+
+Movie Going Frequency
+
+Comments:
+
+Setting the frequency variable in correct order
+
+```{FreqOrder}
+
+movie_freq <- c("<2","3-6","7-10","11-20","20+")
+
+scene_mbr_dim$movie_gng_frq_ref_desc<-
+factor(scene_mbr_dim$movie_gng_frq_ref_desc,levels=movie_freq, ordered=TRUE)
+```
+
+60% data missing
+Customers are evenly spread over the frequency ranges 20+, 7-10, 11-20 and 3-6
+
+```{Frequency}
+group_by(scene_mbr_dim, movie_gng_frq_ref_desc)%>%
+  summarise(count=n())%>%
+  arrange(desc(count))
+```
+
+Customers born after 1975 tend to watch more movies (>7)
+
+```{Freq}
+ggplot(scene_mbr_dim, aes(x=movie_gng_frq_ref_desc, y=brth_dt))+
+  geom_jitter()
+```
+
+
+
+34. Marital Status Reference Key (mrtl_stat_ref_key)
+35. Marital Status Description (mrtl_stat_desc)
+
+Marital status
+
+Comments:
+35% data missing, 35% singles and 25% married or common law
+
+```{MarStat}
+group_by(scene_mbr_dim, mrtl_stat_desc)%>%
+  summarise(count=n())%>%
+  arrange(desc(count))
+```
+
+Singles tend to watch more movies compared to Married or Common Law.
+
+```{MarFreq}
+scene_mbr_dim%>%
+  filter(mrtl_stat_desc!='Unknown'&movie_gng_frq_ref_desc!='Unknown')%>%
+  ggplot(aes(x=mrtl_stat_desc, fill=movie_gng_frq_ref_desc))+
+  geom_bar()
+```
+
+
+
+36. Language Reference Key (lang_ref_key)
+37. Language Description (lang_desc)
+
+Comments:
+Over 90% of the customers have English as the preferred language.
+
+```{Language}
+group_by(scene_mbr_dim, lang_desc)%>%
+  summarise(count=n())%>%
+  arrange(desc(count))
+```
+
+As expected, 96% of the customers with French preference are from Quebec and the top cities are Montreal, Quebec, Laval and Gatineau.
+
+```{LangugageCity}
+scene_mbr_dim%>%
+  filter(lang_desc=='French')%>%
+  group_by(psnl_prov_state_cd, psnl_city)%>%
+  summarise(count=n())%>%
+  arrange(desc(count))
+```
+
+
+
+38. Scene Activity Status (scene_acty_stat)
+
+0 = Unconfirmed - Members are Unconfirmed by default. These members have not had points expired, but they can be considered for points expiry.
+1 = Confirmed Active - Members that are Confirmed Active are not to have points expired.
+2 = Dormant - Members that are Dormant have had their points expired"""
+
+Comments:
+47% of the data is missing and 49% data is "Unconfirmed".
+
+```{ActStat}
+group_by(scene_mbr_dim, scene_acty_stat)%>%
+  summarise(count=n())%>%
+  arrange(desc(count))
+```
+
+
+
+###Summary
+
+Based on this data exploration, following variables can be used for data modelling. These variables have variations and data integrity
+
+* Scene Member Sequence Number with Effective To/From Dates
+* Birth Date
+* Postal Code
+* Province
+* City
+* Heard About Source
+* Gender
+* Preferred Location
+* Preferred Show Time
+* Number of people in Household
+* Movie Going Frequency
+* Marital Status
+  
