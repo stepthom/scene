@@ -9,7 +9,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # Scene Data Exploration
 
-TODO
+Load the required libraries.
 
 ```{r libraries}
 library(tidyverse)
@@ -19,13 +19,48 @@ library(stringr)
 
 ## Table: scene_mbr_dim
 
-TODO
+### Keys
+
+### Effective Timestamps
+
+### Birth Date
+
+### Postal Code
+
+### Province
+
+### City
+
+### Heard About Source
+
+### Gender
+
+### Preferred Location
+
+### Preferred Show Time
+
+### Number of people in Household
+
+### Movie Going Frequency
+
+### Marital Status
+
+
+
 
 ## Table: scene_member_acct_dim
 
-TODO
-
 ## Table: scene_pt_fact
+
+### Keys
+
+### Points (pt)
+
+### Transaction Amount (txn_amt)
+
+### Scene Point Type Key (scene_pt_tp_key)
+
+### Monthly Time Key (mth_tm_key)
 
 TODO
 

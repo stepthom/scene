@@ -27,7 +27,7 @@ mbr_dim = read_csv(paste(in_path, tbl, '.csv', sep=""))
 
 
 # Take a sample
-# For sparklyr, would need to use sdf_sample function here
+# Note: For sparklyr, would need to use sdf_sample function here
 mbr_dim2 = mbr_dim %>% sample_frac(.03, replace=FALSE)
 write_csv(mbr_dim2, paste(out_path, tbl, '.csv', sep=""))
 keys = unique(mbr_dim2$scene_mbr_key)
