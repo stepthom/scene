@@ -1,15 +1,14 @@
 ---
 title: "Scene Data Cleaning"
 output: html_document
+date: "`r format(Sys.time(), '%d %B, %Y')`"
 ---
 
 ```{r}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-# Scene Data Cleaning
-
-Load required libraries.
+This script loads the five SCENE tables, examines each column, does any cleaning possible, and writes the results back out as a new CSV file.
 
 ```{r}
 library(tidyverse)
@@ -17,7 +16,7 @@ library(lubridate)
 library(stringr)
 ```
 
-## Table: scene_mbr_dim
+# Table: scene_mbr_dim
 
 This table contains information about the customers (i.e., users) of SCENE cards. 
 
@@ -28,9 +27,9 @@ scene_mbr_dim <-read_csv(paste(in_path, 'scene_mbr_dim.csv', sep=""))
 ```
 
 
-### Variable Definitions and Exploration
+## Variable Definitions and Exploration
 
-#### Keys
+### Keys
 
 There are two columns for customer keys:
 
@@ -66,7 +65,7 @@ ggplot(scene_mbr_dim, aes(x = factor(1), fill = factor(scene_mbr_seq_num))) +
   coord_polar(theta = "y")
 ```
 
-#### Timestamps
+### Timestamps
 
 - Effective From Timestamp (eff_from_tmstamp)
 - Effective To Timestamp (eff_to_tmstamp)
@@ -144,7 +143,7 @@ scene_mbr_dim%>%
 
 
 
-#### Birthdate (brth_dt)
+### Birthdate (brth_dt)
 
 Birthday of the Scene member, year only.
 
@@ -152,6 +151,8 @@ Comments:
 
 The distribution of birth years is positively skewed with peak around 1990.
 There are entries with birth years as low as 1900. As these are likely to be wrong entries, so we replace them with NA.
+
+TODO: there are also some birthdates below 1900, and some are 9999. Replaces those with NAs also.
 
 ```{r}
 summary(as.factor(scene_mbr_dim$brth_dt))
@@ -163,7 +164,7 @@ scene_mbr_dim$brth_dt[scene_mbr_dim$brth_dt==1900]<-NA
 ```
 
 
-#### Personal Postal Code (psnl_post_cd)
+### Personal Postal Code (psnl_post_cd)
 
 The postal code of the address. First 3 characters only.
 
@@ -197,11 +198,9 @@ ggplot(scene_mbr_dim, aes(x=Longitude, y=Latitude))+
 
 
 
-#### Personal Province State Code (psnl_prov_state_cd)
+### Personal Province State Code (psnl_prov_state_cd)
 
 The state/province where the customer resides.
-
-
 
 Comments:
 Ontario accounts for over half of the members
@@ -218,7 +217,7 @@ TODO: Normalized null, NULL, and NA.
 TODO: What is UN? Clean/fix.
   
 
-#### Personal City (psnl_city)
+### Personal City (psnl_city)
 
 The city of the address.
  
@@ -254,7 +253,7 @@ group_by(scene_mbr_dim, psnl_city)%>%
 
 
 
-#### Personal Country Code (psnl_cntry_cd)
+### Personal Country Code (psnl_cntry_cd)
 
 The country code of the address.
 
@@ -264,7 +263,7 @@ All customers are from Canada.
 TODO: remove this column.
 
 
-#### Delivery Mode Type Code (dlvy_mode_tp_cd)
+### Delivery Mode Type Code (dlvy_mode_tp_cd)
 
 Comments:
 All values are NULL
@@ -272,7 +271,7 @@ All values are NULL
 TODO: remove this column.
 
 
-#### Kill Word Flag (kill_word_f)
+### Kill Word Flag (kill_word_f)
 
 Comments:
 Alll values are NULL
@@ -280,7 +279,7 @@ Alll values are NULL
 TODO: remove this column.
 
 
-#### Web Access Flag (web_acss_f)
+### Web Access Flag (web_acss_f)
 
 Indicates if the customer can access the web site.
 
@@ -290,7 +289,7 @@ All values are 0.
 TODO: remove this column.
 
 
-#### Suspended Flag (suspended_f)
+### Suspended Flag (suspended_f)
 
 Indicates whether the customer's login has been suspended or not.
 
@@ -302,7 +301,7 @@ summary(as.factor(scene_mbr_dim$suspended_f))
 ```
 
 
-#### Household Income
+### Household Income
 
 - Household Income Reference Key (hh_incm_ref_key)
 - Household Income Description (hh_incm_desc)
@@ -322,7 +321,7 @@ group_by(scene_mbr_dim, hh_incm_desc)%>%
 ```
 
 
-#### Program Heard About
+### Program Heard About
 
 - Program Heard About From Input (pgm_hd_abt_from_input) 
 - Program Heard About From Reference Key (pgm_hd_abt_from_ref_key)
@@ -355,7 +354,7 @@ scene_mbr_dim%>%
 ```
 
 
-#### Gender Type
+### Gender Type
 
 - Gender Type Reference Key (gndr_tp_ref_key)
 - Gender Type Description (gndr_desc)
@@ -369,7 +368,7 @@ Comments:
 summary(as.factor(scene_mbr_dim$gndr_desc))
 ```
 
-#### Preferred Location
+### Preferred Location
 
 - Preferred Location Reference Key (prefrd_loctn_ref_key)
 - Preferred Location Description (prefrd_loctn_desc)
@@ -394,7 +393,7 @@ scene_mbr_dim%>%
 ```
 
 
-#### Email Preference
+### Email Preference
 
 - Email Preference Reference Key (email_prefnc_ref_key)
 - Email Preference Description (email_prefnc_desc)
@@ -410,7 +409,7 @@ group_by(scene_mbr_dim, email_prefnc_desc)%>%
   arrange(desc(count))
 ```
 
-#### Education Level
+### Education Level
 
 - Education level Type Reference Key (ed_lvl_tp_ref_key)
 - Education level Type Description  (ed_lvl_desc)
@@ -427,7 +426,7 @@ group_by(scene_mbr_dim, ed_lvl_desc) %>%
 ```
 
 
-#### Preferred Show Time
+### Preferred Show Time
 
 - Preferred Show Time Reference Key (prefrd_show_tm_ref_key)
 - Preferred Show Time Description (prefrd_show_tm_desc) 
@@ -470,7 +469,7 @@ group_by(scene_mbr_dim, psnl_city)%>%
 ```
 
 
-#### Number of Household People
+### Number of Household People
 
 - Number Of Household People Reference Key (num_of_hh_pple_ref_key)
 - Number Of Household People Description (num_of_hh_pple_desc)
@@ -495,7 +494,7 @@ scene_mbr_dim%>%
 ```
 
 
-#### Movie Going Frequency
+### Movie Going Frequency
 
 - Movie Going Frequency Reference Key (movie_gng_frq_ref_key)
 - Movie Going Frequency Description (movie_gng_frq_ref_desc)
@@ -531,7 +530,7 @@ ggplot(scene_mbr_dim, aes(x=movie_gng_frq_ref_desc, y=brth_dt))+
 ```
 
 
-#### Marital Status
+### Marital Status
 
 - Marital Status Reference Key (mrtl_stat_ref_key)
 - Marital Status Description (mrtl_stat_desc)
@@ -556,7 +555,7 @@ scene_mbr_dim%>%
   geom_bar()
 ```
 
-#### Language
+### Language
 
 - Language Reference Key (lang_ref_key)
 - Language Description (lang_desc)
@@ -582,7 +581,7 @@ scene_mbr_dim%>%
 
 
 
-#### Scene Activity Status (scene_acty_stat)
+### Scene Activity Status (scene_acty_stat)
 
 0 = Unconfirmed - Members are Unconfirmed by default. These members have not had points expired, but they can be considered for points expiry.
 1 = Confirmed Active - Members that are Confirmed Active are not to have points expired.
@@ -599,33 +598,32 @@ group_by(scene_mbr_dim, scene_acty_stat)%>%
 
 
 
-### scene_mbr_dim Summary
+## Summary
 
-TODO: Write mutated file back out.
+Here is a preview of the cleaned data.
 
-Based on this data exploration, following variables can be used for data modelling. These variables have variations and data integrity
+```{r}
+head(scene_mbr_dim, n=20)
+```
 
-* Scene Member Sequence Number with Effective To/From Dates
-* Birth Date
-* Postal Code
-* Province
-* City
-* Heard About Source
-* Gender
-* Preferred Location
-* Preferred Show Time
-* Number of people in Household
-* Movie Going Frequency
-* Marital Status
-  
 
-## Table: scene_pt_fact
 
-TODO: Update the following cleaning
+## Write the clean table out
+
+```{r}
+write_csv(scene_mbr_dim, paste(out_path, 'scene_mbr_dim.csv', sep=""))
+```
+
+
+
+
+# Table: scene_pt_fact
+
+TODO: Update the following cleaning.
 
 This table contains the transactions for customers over a time period of December 2006 to September 2016. Each transaction contains the points awarded to the customers, which can be due to financial transactions as well as due to certain non-financial events. Each transaction is associated with a timekey, which indicates the month of transaction. 
 
-### Load the data
+## Load the data
 
 The table 'iwd_time' is used to extract month and year from the timekey.
 
@@ -635,9 +633,9 @@ iwd_time <- read_csv(paste(in_path, 'iwd_tim.csv', sep=""))
 ```
 
  
-### Variable Definitions and Exploration
+## Variable Definitions and Exploration
 
-#### Keys
+### Keys
 
 - Scene Membership Account Key (scene_mbr_acct_key)
 - Scene Member Key (scene_mbr_key)
@@ -646,7 +644,7 @@ Comments:
 These keys are unique for each customer, i.e., there is one-to-one relationship between these keys. Hence, either of these can be used as an identifier during data analysis.
 
 
-#### Points (pt)
+### Points (pt)
 
 Number of points earned
 
@@ -660,7 +658,7 @@ This column and the next column for transaction are explored and analysed togeth
 
 
 
-#### Transaction Amount (txn_amt)
+### Transaction Amount (txn_amt)
 
 Comments:
 This is the transaction amount associated with a points transaction. It may be NULL or can have dollar value as explained earlier.
@@ -710,7 +708,7 @@ summary%>%
 
 
 
-#### Scene Point Type Key (scene_pt_tp_key)
+### Scene Point Type Key (scene_pt_tp_key)
 
 A unique identifier for a point type.
 
@@ -740,7 +738,7 @@ group_by(scene_pt_fact, scene_pt_tp_key)%>%
 
 
 
-#### Scene Membership Account Activity Key (scene_mbr_acct_acty_key)
+### Scene Membership Account Activity Key (scene_mbr_acct_acty_key)
 
 The unique identifier for Account history.
 
@@ -749,7 +747,7 @@ This variable has value '-1' in all observations and cannot be used for predicti
 
 
 
-#### Monthly Time Key (mth_tm_key)
+### Monthly Time Key (mth_tm_key)
 
 The surrogate key for the Time Dimension entity. It is used to represent a predefined time period within the EDW. 
 
@@ -794,18 +792,80 @@ left_join(MonthlyTransactions,YearlyTransactions)%>%
 ```
 
 
-### Summary
+## Summary
 
-Based on this data exploration, transactions and points data can be used along with the time variable to gain understanding of the customers. 
+```{r}
+head(scene_pt_fact, n=20)
+```
 
-## Table: scene_member_acct_dim
+## Write the clean table out
+
+```{r}
+write_csv(scene_pt_fact, paste(out_path, 'scene_pt_fact.csv', sep=""))
+```
+
+
+
+
+
+
+
+
+# Table: scene_member_acct_dim
 
 TODO
 
-## Table: scene_pt_tp_fact
+## Load the data
+
+The table 'iwd_time' is used to extract month and year from the timekey.
+
+```{r}
+scene_member_acct_dim <- read_csv(paste(in_path, 'scene_member_acct_dim.csv', sep=""))
+```
+
+## Write the clean table out
+
+
+```{r}
+write_csv(scene_member_acct_dim, paste(out_path, 'scene_member_acct_dim.csv', sep=""))
+```
+
+
+
+
+# Table: scene_pt_tp_fact
 
 TODO
 
-## Table: iwd_time
+## Load the data
+
+```{r}
+scene_pt_tp_fact <- read_csv(paste(in_path, 'scene_pt_tp_fact.csv', sep=""))
+```
+
+
+## Write the clean table out
+
+```{r}
+write_csv(scene_pt_tp_fact, paste(out_path, 'scene_pt_tp_fact.csv', sep=""))
+```
+
+
+
+
+
+# Table: iwd_time
 
 TODO
+
+## Load the data
+
+```{r}
+iwd_time <- read_csv(paste(in_path, 'iwd_time.csv', sep=""))
+```
+
+## Write the clean table out
+
+```{r}
+write_csv(iwd_time, paste(out_path, 'iwd_time.csv', sep=""))
+```

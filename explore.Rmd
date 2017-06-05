@@ -1,13 +1,14 @@
 ---
 title: "Scene Data Exploration"
 output: html_document
+date: "`r format(Sys.time(), '%d %B, %Y')`"
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-# Scene Data Exploration
+The SCENE dataset consists of 16 tables, but we'll focus this course on the five most relevant tables. These tables describe the SCENE customers and their transactions.
 
 Load the required libraries.
 
@@ -17,57 +18,312 @@ library(lubridate)
 library(stringr)
 ```
 
-## Table: scene_mbr_dim
-
-### Keys
-
-### Effective Timestamps
-
-### Birth Date
-
-### Postal Code
-
-### Province
-
-### City
-
-### Heard About Source
-
-### Gender
-
-### Preferred Location
-
-### Preferred Show Time
-
-### Number of people in Household
-
-### Movie Going Frequency
-
-### Marital Status
 
 
 
+# Table: scene_mbr_dim
 
-## Table: scene_member_acct_dim
+```{r}
+in_path = '/global/project/queens-mma/scene-csv/full/clean/'
+scene_mbr_dim <-read_csv(paste(in_path, 'scene_mbr_dim.csv', sep=""))
+```
 
-## Table: scene_pt_fact
+Here are the details of the table:
 
-### Keys
+```{r}
+str(scene_mbr_dim)
+```
 
-### Points (pt)
 
-### Transaction Amount (txn_amt)
+Here are the first 20 rows of the data:
 
-### Scene Point Type Key (scene_pt_tp_key)
+```{r}
+head(scene_mbr_dim, n=20)
+```
 
-### Monthly Time Key (mth_tm_key)
+## Keys
 
 TODO
 
-## Table: scene_pt_tp_fact
+TODO: Show histogram of number of sequence numbers per customer.
+
+## Effective Timestamps
+
+These timestamps represent the time period for which each sequence number is applicable. 
+
+To see all the new customers,i.e, sequence number '1', there is huge sprike in March, 2010, with over 2000 entries. This must be the first time when the database was created. (bins=77 corresponds to the months in the database)
+
+```{r}
+scene_mbr_dim %>%
+  filter(scene_mbr_seq_num==1) %>%
+  ggplot(aes(x=eff_from_tmstamp)) +
+  geom_histogram(bins = 77)
+```
+
+Removing these initial entries and plotting again shows that new customers have declined since 2014. 
+
+During the year, there appears cyclicality when there seem to be spikes around December/January as well as summer months.
+
+```{r}
+scene_mbr_dim %>%
+  filter(scene_mbr_seq_num==1 & eff_from_tmstamp>ymd(20100305)) %>%
+  ggplot(aes(x=eff_from_tmstamp)) +
+  geom_histogram(bins = 77)
+```
+
+Plotting of data with sequence numbers such as '2' and '3' shows when the entries were updated.
+
+In plot of sequence number '2' there are two spikes in March, 2011 and March, 2012 indicating that the records created in March, 2010 were updated in bulk after 1 and 2 years respectively.
+
+```{r}
+scene_mbr_dim %>%
+  filter(scene_mbr_seq_num==2) %>%
+  ggplot(aes(x=eff_from_tmstamp))+
+  geom_histogram(bins = 77)
+```
+
+For all subsequent sequence numbers, there is spike around March 2012 indicating that there were updates in 2012, but subsequently there have been only small number of renewals.
+
+```{r}
+scene_mbr_dim %>%
+  filter(scene_mbr_seq_num==3) %>%
+  ggplot(aes(x=eff_from_tmstamp)) +
+  geom_histogram(bins = 77)
+```
+
+To find if the accounts have been renewed regularly, maximum of the "effective to timestamp" was analysed and it was found that 25% of the customers were never renewed after their expiry in March 2012. 
+
+Also the proportion of customers which has "effective to timestamp" after January 1, 2016 was less than 20%.
+
+```{r}
+scene_mbr_dim %>%
+group_by(scene_mbr_acct_key) %>%
+  summarise(EndDate=max(eff_to_tmstamp)) %>%
+  ggplot(aes(x=EndDate)) +
+  geom_histogram(bins = 77)
+
+scene_mbr_dim %>%
+group_by(scene_mbr_acct_key) %>%
+  summarise(EndDate=max(eff_to_tmstamp)) %>%
+  filter(EndDate>ymd(20160101))
+```
+
+Each sequence number can be effective for any range of values. However, the typical values are 1 year and two years.
+
+```{r}
+scene_mbr_dim %>%
+  mutate(date_diff=eff_to_tmstamp-eff_from_tmstamp) %>%
+  select(date_diff) %>%
+  ggplot(aes(x=date_diff/24)) +
+  geom_histogram()
+```
+
+## Birth Date
+
+Birthday of the SCENE member, year only.
+
+
+```{r}
+summary(scene_mbr_dim$brth_dt)
+```
+
+```{r}
+summary(as.factor(scene_mbr_dim$brth_dt))
+```
+
+
+```{r}
+scene_mbr_dim %>% 
+  ggplot(mapping = aes(x=brth_dt)) + geom_bar()
+```
+
+The distribution of birth years is positively skewed with peak around 1990.
+
+## Postal Code
+
+The postal code of the address. First 3 characters only.
+
+Comments:
+L5N is has the largest number of Scene customers
+
+```{r}
+group_by(scene_mbr_dim, scene_mbr_acct_key, psnl_post_cd)%>%
+  summarise(count=n())%>%
+  group_by(psnl_post_cd)%>%
+  summarise(count1=n())%>%
+  arrange(desc(count1))
+```
+
+
+Plotting the data on the map using external file which maps postal codes to latitude and longitude.
+
+```{r}
+ggplot(scene_mbr_dim, aes(x=Longitude, y=Latitude))+
+  geom_point()
+```
+
+
+
+## Province
+
+The state/province where the customer resides.
+
+```{r}
+summary(as.factor(scene_mbr_dim$psnl_prov_state_cd))
+```
+
+
+```{r}
+ggplot(scene_mbr_dim, aes(x = factor(1), fill = factor(psnl_prov_state_cd))) +
+  geom_bar(width = 1)+ 
+  coord_polar(theta = "y")
+```  
+
+Ontario accounts for over half of the members.
+
+
+## City
+
+The city of the address.
+
+Number of unique cities:
+
+```{r}
+length(unique(scene_mbr_dim$psnl_city))
+```
+
+Number of customers per city:
+
+```{r}
+scene_mbr_dim %>%
+  group_by(psnl_city) %>%
+  summarise(count= n(), percentage = n() / nrow(scene_mbr_dim)) %>%
+  arrange(desc(count))
+```
+
+10% of the customers are from Toronto
+Additional 10% customers are from Mississauga, Brampton, North York, Scarorough
+
+## Heard About Source
+
+## Gender
+
+## Preferred Location
+
+## Preferred Show Time
+
+## Number of people in Household
+
+## Movie Going Frequency
+
+## Marital Status
+
+
+
+
+
+
+# Table: scene_member_acct_dim
+
+```{r}
+scene_member_acct_dim <- read_csv(paste(in_path, 'scene_member_acct_dim.csv', sep=""))
+```
+
+Here are the details of the table:
+
+```{r}
+str(scene_member_acct_dim)
+```
+
+
+Here are the first 20 rows of the data:
+
+```{r}
+head(scene_member_acct_dim, n=20)
+```
+
+
+
+
+
+# Table: scene_pt_fact
+
+```{r}
+scene_pt_fact <- read_csv(paste(in_path, 'scene_pt_fact.csv', sep=""))
+```
+
+Here are the details of the table:
+
+```{r}
+str(scene_pt_fact)
+```
+
+
+Here are the first 20 rows of the data:
+
+```{r}
+head(scene_pt_fact, n=20)
+```
+
+## Keys
+
+## Points (pt)
+
+## Transaction Amount (txn_amt)
+
+## Scene Point Type Key (scene_pt_tp_key)
+
+## Monthly Time Key (mth_tm_key)
 
 TODO
 
-## Table: iwd_time
+
+
+
+
+# Table: scene_pt_tp_fact
+
+```{r}
+scene_pt_tp_fact <- read_csv(paste(in_path, 'scene_pt_tp_fact.csv', sep=""))
+```
+
+Here are the details of the table:
+
+```{r}
+str(scene_pt_tp_fact)
+```
+
+
+Here are the first 20 rows of the data:
+
+```{r}
+head(scene_pt_tp_fact, n=20)
+```
+
+TODO
+
+
+
+
+
+# Table: iwd_time
+
+
+```{r}
+iwd_time <- read_csv(paste(in_path, 'iwd_time.csv', sep=""))
+```
+
+Here are the details of the table:
+
+```{r}
+str(iwd_time)
+```
+
+
+Here are the first 20 rows of the data:
+
+```{r}
+head(iwd_time, n=20)
+```
 
 TODO
