@@ -39,6 +39,8 @@ There are two columns for customer keys:
  
 These keys are unique for each customer, i.e., there is one-to-one relationship between these keys. Hence, either of these can be used as an identifier during data analysis.
 
+TODO: anonymize the keys.
+
 ```{r}
 summary(as.factor(scene_mbr_dim$scene_mbr_key))
 
@@ -86,8 +88,7 @@ Removing these initial entries and plotting again shows that new customers have 
 During the year, there appears cyclicality when there seem to be spikes around December/January as well as summer months.
 
 ```{r}
-
-scene_mbr_dim%>%
+scene_mbr_dim %>%
   filter(scene_mbr_seq_num==1 & eff_from_tmstamp>ymd(20100305))%>%
   ggplot(aes(x=eff_from_tmstamp))+
   geom_histogram(bins = 77)
@@ -98,7 +99,7 @@ Plotting of data with sequence numbers such as '2' and '3' shows when the entrie
 In plot of sequence number '2' there are two spikes in March, 2011 and March, 2012 indicating that the records created in March, 2010 were updated in bulk after 1 and 2 years respectively.
 
 ```{r}
-scene_mbr_dim%>%
+scene_mbr_dim %>%
   filter(scene_mbr_seq_num==2)%>%
   ggplot(aes(x=eff_from_tmstamp))+
   geom_histogram(bins = 77)
@@ -145,7 +146,7 @@ scene_mbr_dim%>%
 
 #### Birthdate (brth_dt)
 
-Birthday of the Scene member Year only
+Birthday of the Scene member, year only.
 
 Comments:
 
@@ -200,6 +201,8 @@ ggplot(scene_mbr_dim, aes(x=Longitude, y=Latitude))+
 
 The state/province where the customer resides.
 
+
+
 Comments:
 Ontario accounts for over half of the members
 
@@ -210,6 +213,9 @@ ggplot(scene_mbr_dim, aes(x = factor(1), fill = factor(psnl_prov_state_cd))) +
   geom_bar(width = 1)+ 
   coord_polar(theta = "y")
 ```  
+
+TODO: Normalized null, NULL, and NA.
+TODO: What is UN? Clean/fix.
   
 
 #### Personal City (psnl_city)
@@ -238,7 +244,6 @@ scene_mbr_dim<-
 Additional 10% customers are from Mississauga, Brampton, North York, Scarorough
 
 TODO: normalize richmond and richmond hill.
-
 TODO: Look at low some misspellings in the rare data: tronto, edmotnon, niagara on the lak, scarborugh, mississagua
 
 ```{r}
@@ -256,6 +261,7 @@ The country code of the address.
 Comments:
 All customers are from Canada.
 
+TODO: remove this column.
 
 
 #### Delivery Mode Type Code (dlvy_mode_tp_cd)
@@ -263,6 +269,7 @@ All customers are from Canada.
 Comments:
 All values are NULL
 
+TODO: remove this column.
 
 
 #### Kill Word Flag (kill_word_f)
@@ -270,6 +277,7 @@ All values are NULL
 Comments:
 Alll values are NULL
 
+TODO: remove this column.
 
 
 #### Web Access Flag (web_acss_f)
@@ -279,6 +287,7 @@ Indicates if the customer can access the web site.
 Comments:
 All values are 0.
 
+TODO: remove this column.
 
 
 #### Suspended Flag (suspended_f)
@@ -302,7 +311,9 @@ Household income key and its description. It shows income ranges.
 
 Comments:
 85% of data is unknown or is not provided by the customers.
-This data can be imputed based on the external data and Postal Codes
+
+
+TODO: remove this column.
 
 ```{r}
 group_by(scene_mbr_dim, hh_incm_desc)%>%
@@ -313,17 +324,19 @@ group_by(scene_mbr_dim, hh_incm_desc)%>%
 
 #### Program Heard About
 
-- Program Head About From Input (pgm_hd_abt_from_input) 
-- Program Head About From Reference Key (pgm_hd_abt_from_ref_key)
-- Program Head About From Description (pgm_hd_abt_from_desc)
+- Program Heard About From Input (pgm_hd_abt_from_input) 
+- Program Heard About From Reference Key (pgm_hd_abt_from_ref_key)
+- Program Heard About From Description (pgm_hd_abt_from_desc)
 
-Program Head About From Input and Reference Key.
+Program Heard About From Input and Reference Key.
 
 Comments:
-This includes fields which tell where the customer heard about the Scene program. First two fields (17 and 18) include fields like Facebook, Website, Internet, Friends, etc, while Field 19 gives generic classification with only 5 possible fields, viz., Friend/Family, Theatre, Branch, Advertising and Other.
+This includes fields which tell where the customer heard about the Scene program. First two fields include fields like Facebook, Website, Internet, Friends, etc, while Field 19 gives generic classification with only 5 possible fields, viz., Friend/Family, Theatre, Branch, Advertising and Other.
 
 99% of the data for Fields 17 and 18 is missing.
 However, Field 19 has lower proportion of data missing and can be used for predictions. In Field 19, ~two thirds of data is missing.
+
+TODO: remove these columns.
 
 ```{r}
 group_by(scene_mbr_dim, pgm_hd_abt_from_input)%>%
@@ -366,7 +379,7 @@ Preferred location of the theatre for the movie
 Comments:
 More than half of the data is unavailable.
 Scotiabank Theatre in Toronto and Cineplex Odeon South Edmonton are rated the highest among the preferred theatres.
-Exact address of the theatres can be combined with the postal codes of the customers to derive more insights.
+If we had the exact address of the theatres, it can be combined with the postal codes of the customers to derive more insights.
 
 ```{r}
 group_by(scene_mbr_dim, prefrd_loctn_desc)%>%
@@ -408,7 +421,7 @@ Comments:
 70% of the data is missing. 
 
 ```{r}
-group_by(scene_mbr_dim, ed_lvl_desc)%>%
+group_by(scene_mbr_dim, ed_lvl_desc) %>%
   summarise(count=n())%>%
   arrange(desc(count))
 ```
@@ -588,6 +601,8 @@ group_by(scene_mbr_dim, scene_acty_stat)%>%
 
 ### scene_mbr_dim Summary
 
+TODO: Write mutated file back out.
+
 Based on this data exploration, following variables can be used for data modelling. These variables have variations and data integrity
 
 * Scene Member Sequence Number with Effective To/From Dates
@@ -606,11 +621,13 @@ Based on this data exploration, following variables can be used for data modelli
 
 ## Table: scene_pt_fact
 
-The "scene_pt_fact" table contains the points transactions for Scene customers over a time period of December, 2006 to September, 2016. This table contains the points awarded to the customers, which can be due to financial transactions as well as due to certain non-financial events. Each transaction is associated with a timekey, which indicates the month of transaction. 
+TODO: Update the following cleaning
+
+This table contains the transactions for customers over a time period of December 2006 to September 2016. Each transaction contains the points awarded to the customers, which can be due to financial transactions as well as due to certain non-financial events. Each transaction is associated with a timekey, which indicates the month of transaction. 
 
 ### Load the data
 
-File 'iwd_time' is used to extract month and year from the timekey.
+The table 'iwd_time' is used to extract month and year from the timekey.
 
 ```{r}
 scene_pt_fact <- read_csv(paste(in_path, 'scene_pt_fact.csv', sep=""))
@@ -622,8 +639,8 @@ iwd_time <- read_csv(paste(in_path, 'iwd_tim.csv', sep=""))
 
 #### Keys
 
-1. Scene Membership Account Key (scene_mbr_acct_key)
-2. Scene Member Key (scene_mbr_key)
+- Scene Membership Account Key (scene_mbr_acct_key)
+- Scene Member Key (scene_mbr_key)
  
 Comments:
 These keys are unique for each customer, i.e., there is one-to-one relationship between these keys. Hence, either of these can be used as an identifier during data analysis.
@@ -639,7 +656,7 @@ These are number of points earned. They may be
 OR
 2.  linked to an event (such as new account, referral bonus, etc), in which case the transaction column will have NULL
 
-This column and the next column for transactiona are explored and analysed together.
+This column and the next column for transaction are explored and analysed together.
 
 
 
