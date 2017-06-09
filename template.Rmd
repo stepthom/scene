@@ -1,0 +1,86 @@
+---
+title: "MMA 865 Final Project"
+output: html_document
+date: "Summer 2017"
+author: "My Team Name"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r libraries}
+library(tidyverse)
+library(sparklyr)
+```
+
+
+
+# Method 1: Not using Spark
+
+## Load the data
+
+```{r}
+in_path = '/global/project/queens-mma/scene-csv/small/clean/'
+scene_mbr_dim <-read_csv(paste(in_path, 'scene_mbr_dim.csv', sep=""))
+scene_mbr_acct_dim <-read_csv(paste(in_path, 'scene_mbr_acct_dim.csv', sep=""))
+scene_pt_tp_dim <-read_csv(paste(in_path, 'scene_pt_tp_dim.csv', sep=""))
+scene_pt_fact <-read_csv(paste(in_path, 'scene_pt_fact.csv', sep=""))
+iwd_time <-read_csv(paste(in_path, 'iwd_time.csv', sep=""))
+```
+
+Note: the above loads the "small" data set. To load the full dataset instead, change the `in_path` to say "full" instead of `sample03`.
+
+View the first few rows of some of the files:
+
+```{r}
+head(scene_pt_tp_dim, n=10)
+head(scene_mbr_dim, n=10)
+```
+
+
+## Analysis
+
+Go forth with your analysis! Use `dplyr` to manipulate the data, `ggplot2` to plot/graph, `rpart` (or similar) for building classifiers, `cluster` for clustering, and all your other training. Good luck, we're all counting on you.
+
+
+# Method 2: Using Spark
+
+Once you have the above working properly, move on to the good stuff, with Spark.
+
+Connect to the spark cluster.
+
+```{r}
+library(sparklyr)
+sc <- spark_connect(master = "yarn-client", spark_home = "/usr/hdp/current/spark-client/")
+```
+
+Read in the data:
+
+
+```{r}
+in_path = '/global/project/queens-mma/scene-csv/full/raw/'
+
+# First, read in the CSV file like normal; then copy it to Spark's memory.
+scene_pt_tp_dim <-read_csv(paste(in_path, 'scene_pt_tp_dim.csv', sep=""))
+scene_pt_tp_dim_spark <- copy_to(sc, scene_pt_tp_dim, 'scene_pt_tp_dim')
+
+
+# ... Do the same as above for the other required tables
+
+```
+
+## Analyze
+
+Now, go forth and use `sparklyr`. For manipulating data, use the same `dplyr` commands (e.g., `filter`, 'group_by`, etc.) that you're used to, and spark will do the right thing. (That is spark will translate the `dplyr` command into a series of MapReduce jobs under the hood!) For machine learning, use the `sparklyr` `ml_*` commands, e.g., `ml_decision_tree`, `ml_naive_bayes`, etc.
+
+Good luck, grasshopper.
+
+
+## Disconnect from Spark
+
+```{r}
+spark_disconnect(sc)
+```
+
