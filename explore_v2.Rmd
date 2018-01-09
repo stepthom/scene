@@ -1,23 +1,18 @@
 ---
 title: "Scene Data Exploration"
-output:
-  pdf_document: default
-  html_document: default
-
+output: html_document
+date: "`r format(Sys.time(), '%d %B, %Y')`"
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_chunk$set(dev = 'png')
 ```
 
 The SCENE dataset consists of 16 tables, but we'll focus this course on the five most relevant tables. These tables describe the SCENE customers and their transactions.
 
-This document looks at each column of each table. Please sit back, relax, and enjoy the show!
-
 Load the required libraries.
 
-```{r libraries, echo=FALSE}
+```{r libraries}
 library(tidyverse)
 library(lubridate)
 library(stringr)
@@ -25,23 +20,20 @@ library(stringr)
 
 Set folder path
 ```{r}
-in_path = '/global/project/queens-mma/scene-csv/sample03/clean/'
+in_path = '/global/project/queens-mma/scene-csv/full/clean/'
 ```
 
 
 # Table: scene_mbr_dim
 
 ```{r}
-scene_mbr_dim <- read_csv(paste(in_path, 'scene_mbr_dim.csv', sep=""))
+scene_mbr_dim <-read_csv(paste(in_path, 'scene_mbr_dim.csv', sep=""))
 ```
 
 Here are the details of the table:
 
 ```{r}
-dim(scene_mbr_dim)
-colnames(scene_mbr_dim)
 str(scene_mbr_dim)
-summary(scene_mbr_dim)
 ```
 
 Here are the first 20 rows of the data:
@@ -52,29 +44,24 @@ head(scene_mbr_dim, n=20)
 
 ## Member Entry Sequence (scene_mbr_seq_num)
 
-This variable is not properly defined in the metadata. From the dataset, it appears that this number represents a unique entry for each customer and is used for customer record history. Whenever a member is entered in a database, s/he is assigned scene_mbr_seq_num as '1'. At the next change, this variable is changed to '2' and so on. Thus, '1' represents the first entry for the customer.
+This variable is not properly defined in metadata. From the dataset, it appears that this number represents a unique entry for each customer and is used for customer record history. Whenever a member is entered in a database, s/he is assigned scene_mbr_seq_num as '1'. At the next change, this variable is changed to '2' and so on. Thus, '1' represents the first entry for the customer.
 
 ```{r}
 summary(scene_mbr_dim$scene_mbr_seq_num)
+summary(as.factor(scene_mbr_dim$scene_mbr_seq_num))
 
-group_by(scene_mbr_dim, scene_mbr_seq_num)%>%
-  summarise(count=n(), percentage = n()/nrow(scene_mbr_dim))%>%
-  arrange(desc(count))
-
-# ploting seq number <= 10 as the data is extremly skewed
-scene_mbr_dim %>%
-  filter(scene_mbr_seq_num <= 10) %>%
-  ggplot(aes(x=scene_mbr_seq_num)) +
-  geom_histogram(bins = 10)
+ggplot(scene_mbr_dim) + geom_histogram(aes(x=scene_mbr_seq_num), bins = 13)
 
 ```
 
+Comment:
 Because of this definition of sequence number, 50% of the records are '1', while one third is '2'. Higher sequence numbers exponentially drop off. Sequence numbers can be used in combination with next parameters to  understand the trends in the number of new customers and their renewal timelines.
 
 ## Effective Timestamps (eff_from_tmstamp, eff_to_tmstamp)
 
 These timestamps represent the time period for which each sequence number is applicable. 
 
+To see all the new customers,i.e, sequence number '1', there is huge sprike in March, 2010, with over 2000 entries. This must be the first time when the database was created. (bins=77 corresponds to the months in the database)
 
 ```{r}
 scene_mbr_dim %>%
@@ -83,8 +70,9 @@ scene_mbr_dim %>%
   geom_histogram(bins = 77)
 ```
 
-To see all the new customers,i.e, sequence number '1', there is huge sprike in March, 2010, with over 2000 entries. This must be the first time when the database was created. (bins=77 corresponds to the number of months in the database)
+Removing these initial entries and plotting again shows that new customers have declined since 2014. 
 
+During the year, there appears cyclicality when there seem to be spikes around summer months.
 
 ```{r}
 scene_mbr_dim %>%
@@ -92,11 +80,6 @@ scene_mbr_dim %>%
   ggplot(aes(x=eff_from_tmstamp)) +
   geom_histogram(bins = 77)
 ```
-
-Removing these initial entries and plotting again shows that new customers might have declined since 2014. 
-(However, later analysis suggest possibility of database lag. See section on 'scene_mbr_acct_dim' for more details.)
-During the year, there appears to be cyclicality as there seems to be spikes around summer months.
-
 
 Plotting of data with sequence numbers such as '2' and '3' shows when the entries were updated.
 
@@ -107,7 +90,8 @@ scene_mbr_dim %>%
   geom_histogram(bins = 77)
 ```
 
-In plot of sequence number '2' there are two spikes in March, 2011 and March, 2012, suggesting that the records created in March, 2010 might have been updated in bulk after 1 and 2 years respectively. There is also a spike toward the end of 2014, suggesting another bulk data ingestion.
+Comment:
+In plot of sequence number '2' there are two spikes in March, 2011 and March, 2012 suggesting that the records created in March, 2010 were updated in bulk after 1 and 2 years respectively.
 
 
 ```{r}
@@ -119,34 +103,24 @@ scene_mbr_dim %>%
 
 For all subsequent sequence numbers, there is spike around March 2012 indicating that there were updates in 2012, but subsequently there have been only small number of renewals.
 
-To find if the accounts have been renewed regularly, maximum of the "effective to timestamp" is analysed.
+To find if the accounts have been renewed regularly, maximum of the "effective to timestamp" was analysed and it was found that 25% of the customers were never renewed after their expiry in March 2012. 
+
+Also the proportion of customers which has "effective to timestamp" after January 1, 2016 was less than 20%.
 
 ```{r}
-
 scene_mbr_dim %>%
 group_by(scene_mbr_acct_key) %>%
   summarise(EndDate=max(eff_to_tmstamp)) %>%
   ggplot(aes(x=EndDate)) +
   geom_histogram(bins = 77)
 
-EndDateTbl <- scene_mbr_dim %>%
-group_by(scene_mbr_acct_key) %>%
-  summarise(EndDate=max(eff_to_tmstamp))
-
 scene_mbr_dim %>%
 group_by(scene_mbr_acct_key) %>%
   summarise(EndDate=max(eff_to_tmstamp)) %>%
   filter(EndDate>ymd(20160101))
-
-group_by(EndDateTbl, year(EndDate))%>%
-  summarise(count=n(),percentage = n()/nrow(EndDateTbl))
-
-
 ```
 
-35% of the customers were never renewed after their expiry in 2012. 
-Also, the proportion of customers effective after January 1, 2016 was only around 11%.
-
+Each sequence number can be effective for any range of values. However, the typical values are 1 year and two years.
 
 ```{r}
 scene_mbr_dim %>%
@@ -155,9 +129,6 @@ scene_mbr_dim %>%
   ggplot(aes(x=date_diff/24)) +
   geom_histogram()
 ```
-
-Each sequence number can be effective for any range of values. However, the typical values are 1 year and two years.
-
 
 ## Birth Date (brth_dt)
 
@@ -171,7 +142,7 @@ ggplot(data = scene_mbr_dim, mapping = aes(x=brth_dt))+
   geom_bar()
 ```
 
-
+Comment:
 The distribution of birth years is positively skewed with peak around 1990.
 
 ## Postal Code (psnl_post_cd)
@@ -185,6 +156,9 @@ group_by(scene_mbr_dim, scene_mbr_acct_key, psnl_post_cd)%>%
   summarise(count1=n())%>%
   arrange(desc(count1))
 ```
+Comments:
+L5M is has the largest number of Scene customers.
+
 
 Plotting the data on the map using external file which maps postal codes to latitude and longitude.
 
@@ -211,23 +185,11 @@ can_map <- map_data("world", "Canada")
 
 ggplot() + 
   geom_polygon(data = can_map, aes(long, lat, group = group), fill = "white", colour = "grey") + 
-  geom_point(data = scene_mbr_dim, aes(x = Longitude, y = Latitude, alpha = 0.1), colour = "blue") + 
+  geom_point(data = scene_mbr_dim, aes(x = Longitude, y = Latitude, alpha = 0.3)) + 
   scale_size_continuous(range = c(1,6))
 
 
 ```
-
-
-Distribution of scene members seem generally consistent to the Canadian population.
-One member, however, seems to have H0H (postal code for Santa Claus, no kidding!) as address. This could be a mistake or some interesting special account??
-
-```{r}
-Santa_Claus <- scene_mbr_dim %>%
-  filter(psnl_post_cd == "H0H")
-```
-
-
-Looking at the account residing in postal code H0H, this is some 38-old French speaking dude (or a fictious test account maybe?) who prefers to watch movies at 'Cineplex Odeon Place LaSalle' (Montreal). Look for member key '2315422' if interested...
 
 
 ## Personal Province State Code (psnl_prov_state_cd)
@@ -240,19 +202,13 @@ summary(as.factor(scene_mbr_dim$psnl_prov_state_cd))
 
 
 ```{r}
-ggplot(scene_mbr_dim, aes(x = factor(psnl_prov_state_cd))) +
-  geom_bar()
-```  
-
-Ontario members accounts for over half of the member base. Here's a pie chart, just for fun.
-
-```{r}
 ggplot(scene_mbr_dim, aes(x = factor(1), fill = factor(psnl_prov_state_cd))) +
   geom_bar(width = 1)+ 
   coord_polar(theta = "y")
 ```  
 
-
+Comment:
+Ontario accounts for over half of the members.
 
 
 ## City (psnl_city)
@@ -263,7 +219,8 @@ The city of the address.
 length(unique(scene_mbr_dim$psnl_city))
 ```
 
-There are 842 unique cities represented in this sample.
+Comment:
+There are 509 unique cities represented in the scene member base.
 
 
 Number of customers per city:
@@ -275,7 +232,7 @@ scene_mbr_dim %>%
   arrange(desc(count))
 ```
 
-Approximately 9% of the customers are from Toronto.
+Approximately 10% of the customers are from Toronto.
 Additional 8% customers are from Mississauga, Brampton, and Scarorough
 
 ## Suspended Flag (suspended_f)
@@ -289,6 +246,7 @@ scene_mbr_dim %>%
   arrange(desc(count))
 ```
 
+Comment:
 4% customers have been suspended
 
 ## Gender (gndr_desc)
@@ -311,10 +269,10 @@ group_by(scene_mbr_dim, brth_dt)%>%
   left_join(scene_mbr_dim)%>%
   ggplot() + geom_bar(mapping=aes(x=brth_dt, fill = gndr_desc), position="fill")
 ```
-
+Comments:
 55% of the members in the dataset are females.
 The ratio of female members are slightly higher than male members in most of Canadian Provinces.
-Yonger member base tend to have more male representation than do older members.
+Yonger member base tend to have more male representation than older members
 
 
 ## Preferred Location
@@ -330,9 +288,9 @@ scene_mbr_dim%>%
   summarise(count=n_distinct(scene_mbr_acct_key))%>%
   arrange(desc(count))  
 ```
-
+Comments:
 More than half of the data is unavailable.
-Scotiabank Theatre Chinook and SilverCity Yorkdale are rated the highest among the preferred theatres.
+Scotiabank Theatre in Toronto and Cineplex Odeon South Edmonton are rated the highest among the preferred theatres.
 If we had the exact address of the theatres, it can be combined with the postal codes of the customers to derive more insights.
 
 ## Email Preference (email_prefnc_desc)
@@ -345,6 +303,7 @@ group_by(scene_mbr_dim, email_prefnc_desc)%>%
   arrange(desc(count))
 ```
 
+Comments:
 78% customers prefer HTML emails while 5% prefer plain text. 17% of preferences are unknown.
 
 ## Education Level
@@ -361,6 +320,7 @@ group_by(scene_mbr_dim, psnl_prov_state_cd)%>%
   ggplot() + geom_bar(mapping=aes(x=psnl_prov_state_cd, fill = ed_lvl_desc), position="fill")
 ```
 
+Comments:
 70% of the data is missing. 
 Educational mix among members across provinces seem different.
 
@@ -390,7 +350,8 @@ group_by(scene_mbr_dim, brth_dt)%>%
   geom_bar(mapping=aes(x=brth_dt, fill = prefrd_show_tm_desc), position="fill")
 ```
 
-58% of the data is missing. Of the people who have responded, 7pm seems to be the preferred movie time (39%).
+Comment:
+59% of the data is missing. Of the people who have responded, 7pm seems to be the preferred movie time (40%).
 Pereferred show time seem different across cities and age groups. As expected, yonger members tend to prefer later shows.
 
  
@@ -407,7 +368,8 @@ scene_mbr_dim%>%
   geom_bar(mapping=aes(x=num_of_hh_pple_desc, fill = prefrd_show_tm_desc), position="fill")
 ```
 
-57% of the data is missing. Of the people who have responded, 35% are single person households.
+Comment
+58% of the data is missing. Of the people who have responded, 35% are single person households.
 There is no significant variation in the preferred timing based on the number of people in the household. However, this variable can be used for classification as it can indicate the number of kids in the household and children can be targetted with specific genre. It can also indicate potential profit opportunity size.
 
 
@@ -418,19 +380,14 @@ group_by(scene_mbr_dim, movie_gng_frq_ref_desc)%>%
   summarise(count=n(),percentage = n()/nrow(scene_mbr_dim))%>%
   arrange(desc(count))
 
-movie_freq <- c("<2","3-6","7-10","11-20","20+")
-
-scene_mbr_dim$movie_gng_frq_ref_desc<-
-  factor(scene_mbr_dim$movie_gng_frq_ref_desc,levels=movie_freq, ordered=TRUE)
-
 scene_mbr_dim%>%
   filter(movie_gng_frq_ref_desc !="NA")%>%
   ggplot()+
   geom_bar(mapping=aes(x=brth_dt, fill = movie_gng_frq_ref_desc), position="fill")
 ```
 
-
-57% data missing.
+Comment:
+58% data missing.
 Customers are evenly spread over the frequency ranges 20+, 7-10, 11-20 and 3-6.
 As expected, younger members tend to watch more movies.
 
@@ -450,7 +407,8 @@ scene_mbr_dim%>%
   geom_bar(mapping=aes(x=mrtl_stat_desc, fill = movie_gng_frq_ref_desc), position="fill")
 ```
 
-37% data missing, 35% singles and 26% married or common law.
+Comment:
+35% data missing, 35% singles and 25% married or common law.
 Married or common in law members tend to watch less movies compare to other groups.
 
 
@@ -471,7 +429,7 @@ group_by(scene_mbr_dim, lang_desc)%>%
   geom_bar(mapping=aes(x=lang_desc, fill = psnl_prov_state_cd), position="fill")
 
 ```
-
+Comments:
 Over 90% of the customers have English as the preferred language.
 As expected, vast majority of Francophone members are from Quebect.
 
@@ -487,14 +445,13 @@ group_by(scene_mbr_dim, scene_acty_stat)%>%
   arrange(desc(count))
 ```
 
-48% of the data is missing and 49% data is "Unconfirmed".
+Comment:
+47% of the data is missing and 49% data is "Unconfirmed".
 
 
 
 
 # Table: scene_member_acct_dim
-
-This table holds data on member accounts. Each member (from the above `scene_mbr_dim` table) belongs to a member account. Think of it like a family: there would be one account, but many members belonging to that account.
 
 ```{r}
 scene_mbr_acct_dim <- read_csv(paste(in_path, 'scene_mbr_acct_dim.csv', sep=""))
@@ -503,10 +460,7 @@ scene_mbr_acct_dim <- read_csv(paste(in_path, 'scene_mbr_acct_dim.csv', sep=""))
 Here are the details of the table:
 
 ```{r}
-dim(scene_mbr_acct_dim)
-colnames(scene_mbr_acct_dim)
 str(scene_mbr_acct_dim)
-summary(scene_mbr_acct_dim)
 ```
 
 
@@ -521,30 +475,25 @@ head(scene_mbr_acct_dim, n=20)
 
 
 Possible values:
-- `E` = Enrolled
-- `U` = Unenrolled
-- `P` = Pending
-- `C` = Canceled
+E = Enrolled
+U = Unenrolled
+P = Pending
+C = Canceled
 
 ```{r}
-group_by(scene_mbr_acct_dim, enrollment_stat_cd)%>%
-  summarise(count=n(),percentage = n()/nrow(scene_mbr_acct_dim))%>%
-  arrange(desc(count))
+summary(as.factor(scene_mbr_acct_dim$enrollment_stat_cd))
 ```
 
-In this sample dataset, 5,489 (98%) enrolled and 84(2%) unerolled.
+Comment: In the Tiny dataset, we only saw 2 values in this field, 5,489 (98%) enrolled and 84(2%) unerolled.
 
 ## cncl_dt
 
 Cancel date. 98% of the field is 'null'.
 
 ```{r}
-scene_mbr_acct_dim$cncl_dt <- ymd_hms(scene_mbr_acct_dim$cncl_dt)
-
 group_by(scene_mbr_acct_dim, cncl_dt)%>%
   summarise(count=n(),percentage = n()/nrow(scene_mbr_acct_dim))%>%
   arrange(desc(count))
-
 
 scene_mbr_acct_dim%>%
   filter(!is.na(cncl_dt))%>%
@@ -552,10 +501,9 @@ scene_mbr_acct_dim%>%
   geom_histogram()
 ```
 
-
+Comment: 
 98% of the field is 'null', which is expected as most people would not call in to cancel a loyalty account even if they no longer use it.
 The number of cancellation seems to be increasing over time. However, this could be misleading as we might see the number of accounts growing over time as well. We should look at cancellation in conjunction with the number of accounts over time.
-Comparing the number of accounts having a cancel date with enrollment status above, 'U' and 'C' seem to be equivalent.
 
 ## Enrollment Date (scene_src_enrollment_dt)
 
@@ -567,6 +515,7 @@ scene_mbr_acct_dim%>%
   geom_histogram()
 ```
 
+Comment:
 The number of enrollment seems to have significantly dropped since 2014, which seem unintuitive.
 A possibility that could exlain what we see here is the time lag between when an account is enrolled vs. when the data enters into the database we are using. See next point below.
 
@@ -576,10 +525,6 @@ A possibility that could exlain what we see here is the time lag between when an
 Date from which that specific record became effective. 
 
 ```{r}
-group_by(scene_mbr_acct_dim, as.Date(acct_eff_from_tmstamp))%>%
-  summarise(count=n(),percentage = n()/nrow(scene_mbr_acct_dim))%>%
-  arrange(desc(count))
-
 scene_mbr_acct_dim%>%
   ggplot(aes(x=acct_eff_from_tmstamp))+
   geom_histogram()
@@ -589,184 +534,9 @@ ggplot(data=scene_mbr_acct_dim) +
 
 ```
 
-Approximatly 40% of accounts in the tiny dataset have an effective date of 2010-03-03. This seems to be the date where enrollment data (from Maritz) started to be ingested into a new database. 
+Comment: 
+Approximatly 33% of accounts in the Tiny dataset have an effective date of 2010-03-03. This seems to be the date where enrollment data (from Maritz) started to be ingested into a new database. 
 The range of date lag between the original enrollment date and account effective date decreases linearly as time progresses. This further confirms the theory above--newly enrolled account might experience a range of lags before they are reflected in this database.
-
-
-
-
-# Table: scene_pt_fact
-
-This table holds the actual transactions. For your convenience, it has already been joined with two other tables, `iwd_time` and `scene_tp_pt_fact`, both described below.
-
-```{r}
-scene_pt_fact <- read_csv(paste(in_path, 'scene_pt_fact.csv', sep=""))
-```
-
-Here are the details of the table:
-
-```{r}
-dim(scene_pt_fact)
-colnames(scene_pt_fact)
-str(scene_pt_fact)
-summary(scene_pt_fact)
-```
-
-Here are the first 20 rows of the data:
-
-```{r}
-head(scene_pt_fact, n=20)
-```
-
-## Points (pt) & Transaction Amount (txn_amt)
-
-These are the number of points earned or deducted for each transaction. They may be: 
-1. Linked to a financial transaction, in which case the transaction column will have dollar value. 
-2. Linked to an event (such as new account, referral bonus, redemptions, etc.), in which case the transaction column will be `NULL`.
-
-High level summary per customer:
-
-```{r}
-summary<-
-group_by(scene_pt_fact, scene_mbr_acct_key)%>%
-  summarise(number_of_txns=n(),
-            total_points= sum(pt),
-            total_txn_amt= sum(as.numeric(txn_amt),na.rm=TRUE))%>%
-  arrange(desc(total_points))
-
-summary%>%
-  ggplot(aes(x=number_of_txns))+
-  geom_histogram(bins = 100)
-
-summary%>%
-  ggplot(aes(x=total_points))+
-  geom_histogram(bins = 100)
-  
-summary%>%
-  ggplot(aes(x=total_txn_amt))+
-  geom_histogram(bins = 100)  
-```
-
-There are 328,357 customers in the sample, which have a wide range of transactions and points.
-The number of transactions show negative exponential distribution. The number of points net of redemptions is also extremely skewed to the left. We need to further analyze transaction inflow and outflow instead of solely looking at simple aggregation of points per member.
-
-
-Some high level count per transaction types
-```{r}
-group_by(scene_pt_fact, txn_tp_1)%>%
-  summarise(count=n(),
-            percent = count/length(scene_pt_fact$txn_tp_1)*100,
-            avg_pts_txn = mean(as.numeric(pt), na.rm=TRUE),
-            avg_dollar_txn = mean(as.numeric(txn_amt), na.rm=TRUE))%>%
-  arrange(desc(count))
-
-group_by(scene_pt_fact, txn_tp_2)%>%
-  summarise(count=n(),
-            percent = count/length(scene_pt_fact$txn_tp_2)*100,
-            avg_pts_txn = mean(as.numeric(pt), na.rm=TRUE),
-            avg_dollar_txn = mean(as.numeric(txn_amt), na.rm=TRUE))%>%
-  arrange(desc(count))
-
-group_by(scene_pt_fact, txn_tp_3)%>%
-  summarise(count=n(),
-            percent = count/length(scene_pt_fact$txn_tp_3)*100,
-            avg_pts_txn = mean(as.numeric(pt), na.rm=TRUE),
-            avg_dollar_txn = mean(as.numeric(txn_amt), na.rm=TRUE))%>%
-  arrange(desc(count))
-```
-
-
-Over 91% of transaction involves issuance(collection) of points, vs. only 9% of transactions were related to redemptions. So averagely speaking, members need to collect points over 10 purchases/activities before they redeem pts for once.
-
-95 percent of point transactions are tied to regular purchases and redemptions.
-At least 45% of activities (purchases and redemptions) happen outside of cineplex theaters (example: purchase on scene debit/credit cards outside of Cineplex).
-
-
-## Points issued 
-
-```{r}
-scene_pt_fact%>%
-  filter(txn_tp_1=="issuance")%>%
-  ggplot(mapping = aes(x=pt))+
-  geom_histogram(bins=500) + scale_x_continuous(limits = c(0, 5000))
-
-group_by(scene_pt_fact, txn_tp_2)%>%
-  filter(txn_tp_1=="issuance")%>%
-  summarise(count=n(), total_pts = sum(as.numeric(pt), na.rm=TRUE))%>%
-  arrange(desc(count))
-
-group_by(scene_pt_fact, txn_tp_3)%>%
-  filter(txn_tp_1=="issuance")%>%
-  summarise(count=n(), total_pts = sum(as.numeric(pt), na.rm=TRUE))%>%
-  arrange(desc(count))
-
-```
-
-94% of issuances and 88% of points issued were associated with regular transactions.
-50% of points issued happened outside of cineplex theaters.
-
-```{r}
-scene_pt_fact %>%
-  filter(txn_tp_1=="issuance")%>%
-  ggplot(aes(x=as.numeric(txn_amt, na.rm=TRUE), y=as.numeric(pt, na.rm=TRUE), group=txn_tp_2, colour=txn_tp_2)) + geom_point()
-```
-
-While enrollment and promotional bonuses are typically not involving dollar transactions, regular points seems to follow a few specific earn rates, which likely represent earn rates at cineplex vs. non-cineplex locations.
-Note that sometimes, dollar spend triggers negative points, these could be redemptions at the same time of purchases, or potentially data base errors.
-
-## Redemptions
-
-```{r}
-scene_pt_fact%>%
-  filter(txn_tp_1=="redemption")%>%
-  ggplot(mapping = aes(x=pt))+
-  geom_histogram(bins=500) + scale_x_continuous(limits = c(-5000, 0))
-
-group_by(scene_pt_fact, txn_tp_3)%>%
-  filter(txn_tp_1=="redemption")%>%
-  summarise(count=n(), total_pts = sum(as.numeric(pt), na.rm=TRUE))%>%
-  arrange(desc(count))
-```
-
-The number of points redeemed tends to be multipliers of 1000, which is worth a general admission ticket.
-98% of points were redeemed at cineplex theaters.
-
-## Timelines
-
-```{r}
-group_by(scene_pt_fact, time_lvl_end_dt, txn_tp_1)%>%
-  summarise(mth_pts = sum(as.numeric(pt, na.rm=TRUE)))%>%
-  ggplot() + geom_line(aes(x=time_lvl_end_dt, y=mth_pts, group=txn_tp_1, colour=txn_tp_1))
-
-group_by(scene_pt_fact, time_lvl_end_dt, txn_tp_2)%>%
-  filter(txn_tp_1=="issuance")%>%
-  summarise(mth_pts = sum(as.numeric(pt, na.rm=TRUE)))%>%
-  ggplot() + geom_line(aes(x=time_lvl_end_dt, y=mth_pts, group=txn_tp_2, colour=txn_tp_2))
-
-group_by(scene_pt_fact, time_lvl_end_dt, txn_tp_3)%>%
-  filter(txn_tp_1=="issuance")%>%
-  summarise(mth_pts = sum(as.numeric(pt, na.rm=TRUE)))%>%
-  ggplot() + geom_line(aes(x=time_lvl_end_dt, y=mth_pts, group=txn_tp_3, colour=txn_tp_3))
-```
-
-More and more points are being issued for day-to-day transactions while enrollment bonues seems to have decreased post-2010.
-Non-cin transactions look perfectly cyclical on a yearly basis.
-Although issuance at cineplext vs. other places seem to follow the same overall trend, high & lows don't seem to happen in the same months.
-
-```{r}
-scene_pt_fact$mo_clndr_code<-
-  factor(scene_pt_fact$mo_clndr_code,levels=month.name, ordered=TRUE)
-
-group_by(scene_pt_fact, mo_clndr_code, txn_tp_3)%>%
-  filter(txn_tp_1=="issuance")%>%
-  summarise(mth_pts = sum(as.numeric(pt, na.rm=TRUE)))%>%
-  ggplot() + geom_line(aes(x=mo_clndr_code, y=mth_pts, group=txn_tp_3, colour=txn_tp_3))
-```
-
-A quick view at the aggregate month level, we see that cineplex pts issuane peaks in the summer, while non-cin points peaks in December as well.
-
-
-
 
 
 
@@ -774,8 +544,7 @@ A quick view at the aggregate month level, we see that cineplex pts issuane peak
 
 This table provides descriptive information, such as point types, merchant names and transaction source, to transactions recorded in the 'scene_pt_fact' table. 
 
-This table does not provide much value by itself. It has already been joined to the 'scene_pt_fact' table, and thus will probably not be useful on its own.
-
+This table does not provide much value by itself. It is mapped to the 'scene_pt_fact' table and used as descriptors to the transactions recorded in that table.
 
 ```{r}
 scene_pt_tp_dim <- read_csv(paste(in_path, 'scene_pt_tp_dim.csv', sep=""))
@@ -784,10 +553,7 @@ scene_pt_tp_dim <- read_csv(paste(in_path, 'scene_pt_tp_dim.csv', sep=""))
 Here are the details of the table:
 
 ```{r}
-dim(scene_pt_tp_dim)
-colnames(scene_pt_tp_dim)
 str(scene_pt_tp_dim)
-summary(scene_pt_tp_dim)
 ```
 
 
@@ -799,10 +565,8 @@ head(scene_pt_tp_dim, n=20)
 
 
 
-
 # Table: iwd_time
 
-This table lists dates and times. This table also does not provide much value by itself. It is mapped to the 'scene_pt_fact' table and provides time descriptions to the transactions recorded in that table.
 
 ```{r}
 iwd_time <- read_csv(paste(in_path, 'iwd_time.csv', sep=""))
@@ -811,10 +575,7 @@ iwd_time <- read_csv(paste(in_path, 'iwd_time.csv', sep=""))
 Here are the details of the table:
 
 ```{r}
-dim(iwd_time)
-colnames(iwd_time)
 str(iwd_time)
-summary(iwd_time)
 ```
 
 
@@ -830,7 +591,7 @@ head(iwd_time, n=20)
 summary(as.factor(iwd_time$time_lvl))
 ```
 
-
+Comment:
 This field categorizes time_key into 4 levels: Day, Month, Quarter, Year
 
 
@@ -848,7 +609,7 @@ NOTE:
 * Although other fields from this table cannot be linked to point transactions, the following fields from the 'iwd_time' table provides some interesting facts.
 
 
-## anul_clndr_code
+### anul_clndr_code
 
 This indicates the calendar year of the corresponding time key.
 
@@ -856,19 +617,19 @@ This indicates the calendar year of the corresponding time key.
 summary(iwd_time$anul_clndr_code)
 ```
 
- 
+Comment: 
 earliest calendar year stamp: 1994, latest calendar year stamp: 2021
 
 
 
-## anual_fncl_code
+### anual_fncl_code
 This indicates the bank's fiscal year of the corresponding time key.
 
 ```{r}
 summary(iwd_time$anul_fncl_code)
 ```
 
- 
+Comment: 
 earliest fiscal year stamp: 1994, latest fiscal year stamp: 2021
 
 
@@ -883,11 +644,11 @@ iwd_time %>%
   count(mo_clndr_code)
 ```
 
- 
+Comment: 
 Looking at the month where calendar year differs from fiscal year, November seems to be the start of fiscal year at Scotiabank.
 
 
-## qtrly_clndr_code
+### qtrly_clndr_code
 This field indicates the calendar quarter of the corresponding time_key.
 
 ```{r}
@@ -900,10 +661,10 @@ iwd_time %>%
   count(time_lvl)
 ```
 
- 
+Comment: 
 28 missing values found from quarter code, all for year level time keys.
 
-## qtrly_fncl_code
+### qtrly_fncl_code
 This field indicates the fiscal quarter of the corresponding time_key.
 ```{r}
 summary(as.factor(iwd_time$qtrly_fncl_code))
@@ -920,7 +681,109 @@ iwd_time%>%
   distinct(qtrly_fncl_code, mo_clndr_code)
 ```
 
- 
+Comment: 
 fiscal qtr 1: Nov-Jan, fiscal qtr 2: Feb-Apr, fiscal qtr 3: May-Jul, fiscal qtr 4: Aug-Oct
 
 
+
+# Table: scene_pt_fact
+
+```{r}
+scene_pt_fact <- read_csv(paste(in_path, 'scene_pt_fact.csv', sep=""))
+```
+
+Here are the details of the table:
+
+```{r}
+str(scene_pt_fact)
+```
+
+
+Here are the first 20 rows of the data:
+
+```{r}
+head(scene_pt_fact, n=20)
+```
+
+## Points (pt) & Transaction Amount (txn_amt)
+
+These are the number of points earned or deducted for each transaction. They may be: 
+1.  linked to a financial transaction on Scotiabank product, in which case transaction column will have dollar value 
+OR
+2.  linked to an event (such as new account, referral bonus, redemptions, etc.), in which case the transaction column will have NULL
+
+High level summary per customer:
+```{r}
+summary<-
+group_by(scene_pt_fact, scene_mbr_acct_key)%>%
+  summarise(number_of_txns=n(),
+            total_points= sum(pt),
+            total_txn_amt= sum(txn_amt,na.rm=TRUE))%>%
+  arrange(desc(total_points))
+
+summary%>%
+  ggplot(aes(x=number_of_txns))+
+  geom_histogram(bins = 100)
+
+summary%>%
+  ggplot(aes(x=total_points))+
+  geom_histogram(bins = 100)
+
+summary%>%  
+  filter(total_txn_amt==0 & total_points<500)%>%
+  ggplot(aes(x=total_points))+
+  geom_histogram(bins = 1000)  
+  
+summary%>%
+  ggplot(aes(x=total_txn_amt))+
+  geom_histogram(bins = 100)  
+```
+
+Comment: 
+There are 5515 customers in the 'tiny' database, which have a wide range of transactions and points.
+The number of transactions show negative exponential distribution. The number of points net of redemptions is also extremely skewed to the left. We need to further analyze transaction inflow and outflow instead of solely looking at simple aggregation of points per member.
+
+
+```{r}
+# pts and txn amt summary on category 2 and 3
+group_by(scene_pt_fact, txn_tp_2)%>%
+  summarise(number_of_txns = n(),
+            total_pts = sum(pt),
+            min_pts = min(pt),
+            max_pts = max(pt),
+            total_txn_amt= sum(txn_amt,na.rm=TRUE),
+            min_txn_amt= min(txn_amt,na.rm=TRUE),
+            max_txn_amt= max(txn_amt,na.rm=TRUE))%>%
+  arrange(desc(total_pts))
+
+group_by(scene_pt_fact, txn_tp_3)%>%
+  summarise(number_of_txns = n(),
+            total_pts = sum(pt),
+            min_pts = min(pt),
+            max_pts = max(pt),
+            total_txn_amt= sum(txn_amt,na.rm=TRUE),
+            min_txn_amt= min(txn_amt,na.rm=TRUE),
+            max_txn_amt= max(txn_amt,na.rm=TRUE))%>%
+  arrange(desc(total_pts))
+
+group_by(scene_pt_fact, txn_tp_1)%>%
+  summarise(count=n(),
+            percent = count/length(scene_pt_fact$txn_tp_1)*100,
+            avg_pts_txn = mean(pt),
+            txn_type = mean(txn_amt, na.rm=TRUE))%>%
+  arrange(desc(count))
+
+group_by(scene_pt_fact, txn_tp_2)%>%
+  summarise(count=n(),
+            percent = count/length(scene_pt_fact$txn_tp_2)*100,
+            avg_pts_txn = mean(pt),
+            txn_type = mean(txn_amt, na.rm=TRUE))%>%
+  arrange(desc(count))
+
+group_by(scene_pt_fact, txn_tp_3)%>%
+  summarise(count=n(),
+            percent = count/length(scene_pt_fact$txn_tp_3)*100,
+            avg_pts_txn = mean(pt),
+            txn_type = mean(txn_amt, na.rm=TRUE))%>%
+  arrange(desc(count))
+```

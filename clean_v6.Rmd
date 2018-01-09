@@ -1,0 +1,1599 @@
+---
+title: "Scene Data Cleaning"
+output: html_document
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+---
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This script loads the five SCENE tables, examines each column, does any cleaning possible, and writes the results back out as a new CSV file.
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(stringr)
+```
+
+# Table: scene_mbr_dim
+
+This table contains information about the customers (i.e., users) of SCENE cards. 
+
+
+```{r}
+# in_path = 'C:/Users/Yue/Desktop/SCENE/tiny/raw/'
+# out_path = 'C:/Users/Yue/Desktop/SCENE/tiny/clean/'
+in_path = '/global/project/queens-mma/scene-csv/full/raw/'
+out_path = '/global/project/queens-mma/scene-csv/full/clean/'
+scene_mbr_dim <- read_csv(paste(in_path,'scene_mbr_dim.csv', sep=""), quote = "\"")
+```
+
+
+
+## Variable Definitions and Exploration
+
+### Keys
+
+There are two columns for customer keys:
+
+- Scene Membership Account Key (scene_mbr_acct_key). The unique identifier for Scene Membership Account
+- Scene Member Key (scene_mbr_key). The unique identifier for the Scene Customer. This is the Surrogate key generated using Sequence Generators.
+ 
+These keys are unique for each customer, i.e., there is one-to-one relationship between these keys. Hence, either of these can be used as an identifier during data analysis.
+
+<span style="color:red">TODO: anonymize the keys.</span>
+
+```{r}
+# removing what appears to be a testing record
+scene_mbr_dim %>%
+  filter(scene_mbr_key == -1)
+
+scene_mbr_dim <- scene_mbr_dim %>%
+  filter(scene_mbr_key != -1)
+
+
+summary(as.factor(scene_mbr_dim$scene_mbr_key))
+
+group_by(scene_mbr_dim, scene_mbr_acct_key, scene_mbr_key)%>%
+  summarise(count=n())
+```
+
+
+- Scene Member Sequence Number (scene_mbr_seq_num)
+
+This variable is not properly defined in metadata. From the dataset, it appears that this number represents a unique entry for each customer and is used for customer record history. Whenever a member is entered in a database, s/he is assigned scene_mbr_seq_num as '1'. At the next change, this variable is changed to '2' and so on. Thus, '1' represents the first entry for the customer.
+
+```{r}
+scene_mbr_dim%>%
+  arrange(scene_mbr_key,scene_mbr_seq_num)
+```
+
+Because of this definition of sequence number, 50% of the records are '1', while one third is '2'. Higher sequence numbers exponentially drop off. Sequence numbers can be used in combination with next parameters to  understand the trends in the number of new customers and their renewal timelines.
+
+```{r}
+ggplot(scene_mbr_dim, aes(x = factor(1), fill = factor(scene_mbr_seq_num))) +
+  geom_bar(width = 1)+ 
+  coord_polar(theta = "y")
+```
+
+### Timestamps
+
+- Effective From Timestamp (eff_from_tmstamp)
+- Effective To Timestamp (eff_to_tmstamp)
+
+Comments:
+These timestamps represent the time period for which each sequence number is applicable. 
+
+To see all the new customers,i.e, sequence number '1', there is huge sprike in March, 2010, with over 2000 entries. This must be the first time when the database was created. (bins=77 corresponds to the months in the database)
+
+```{r}
+scene_mbr_dim%>%
+  filter(scene_mbr_seq_num==1)%>%
+  ggplot(aes(x=eff_from_tmstamp))+
+  geom_histogram(bins = 77)
+```
+
+Removing these initial entries and plotting again shows that new customers have declined since 2014. 
+
+During the year, there appears cyclicality when there seem to be spikes around December/January as well as summer months.
+
+```{r}
+scene_mbr_dim %>%
+  filter(scene_mbr_seq_num==1 & eff_from_tmstamp>ymd(20100305))%>%
+  ggplot(aes(x=eff_from_tmstamp))+
+  geom_histogram(bins = 77)
+```
+
+Plotting of data with sequence numbers such as '2' and '3' shows when the entries were updated.
+
+In plot of sequence number '2' there are two spikes in March, 2011 and March, 2012 indicating that the records created in March, 2010 were updated in bulk after 1 and 2 years respectively.
+
+```{r}
+scene_mbr_dim %>%
+  filter(scene_mbr_seq_num==2)%>%
+  ggplot(aes(x=eff_from_tmstamp))+
+  geom_histogram(bins = 77)
+```
+
+For all subsequent sequence numbers, there is spike around March 2012 indicating that there were updates in 2012, but subsequently there have been only small number of renewals.
+
+```{r}
+scene_mbr_dim%>%
+  filter(scene_mbr_seq_num==3)%>%
+  ggplot(aes(x=eff_from_tmstamp))+
+  geom_histogram(bins = 77)
+```
+
+To find if the accounts have been renewed regularly, maximum of the "effective to timestamp" was analysed and it was found that 25% of the customers were never renewed after their expiry in March 2012. 
+
+Also the proportion of customers which has "effective to timestamp" after January 1, 2016 was less than 20%.
+
+```{r}
+scene_mbr_dim%>%
+group_by(scene_mbr_acct_key)%>%
+  summarise(EndDate=max(eff_to_tmstamp))%>%
+  ggplot(aes(x=EndDate))+
+  geom_histogram(bins = 77)
+
+scene_mbr_dim%>%
+group_by(scene_mbr_acct_key)%>%
+  summarise(EndDate=max(eff_to_tmstamp))%>%
+  filter(EndDate>ymd(20160101))
+```
+
+Each sequence number can be effective for any range of values. However, the typical values are 1 year and two years.
+
+```{r}
+
+scene_mbr_dim%>%
+  mutate(date_diff=eff_to_tmstamp-eff_from_tmstamp)%>%
+  select(date_diff)%>%
+  ggplot(aes(x=date_diff/24))+
+  geom_histogram()
+```
+
+
+### Birthdate (brth_dt)
+
+Birthday of the Scene member, year only.
+
+Comments:
+
+The distribution of birth years is positively skewed with peak around 1990.
+There are entries with birth years as low as 1900. As these are likely to be wrong entries, so we replace them with NA.
+
+```{r}
+summary(as.factor(scene_mbr_dim$brth_dt))
+
+ggplot(data = scene_mbr_dim, mapping = aes(x=brth_dt))+
+  geom_bar()
+
+scene_mbr_dim$brth_dt[scene_mbr_dim$brth_dt<1917]<-NA
+scene_mbr_dim$brth_dt[scene_mbr_dim$brth_dt==9999]<-NA
+```
+
+
+### Personal Postal Code (psnl_post_cd)
+
+The postal code of the address. First 3 characters only.
+
+Comments:
+L5M (part of Mississauga) is has the largest number of Scene customers
+
+```{r}
+# convert all letters in postal code to upper case
+scene_mbr_dim$psnl_post_cd <-
+str_to_upper(scene_mbr_dim$psnl_post_cd)
+
+group_by(scene_mbr_dim, scene_mbr_acct_key, psnl_post_cd)%>%
+  summarise(count=n())%>%
+  group_by(psnl_post_cd)%>%
+  summarise(count1=n())%>%
+  arrange(desc(count1))
+```
+
+### Personal Province State Code (psnl_prov_state_cd)
+
+The state/province where the customer resides.
+
+Comments:
+Ontario accounts for over half of the members
+
+```{r}
+summary(as.factor(scene_mbr_dim$psnl_prov_state_cd))
+
+ggplot(scene_mbr_dim, aes(x = factor(1), fill = factor(psnl_prov_state_cd))) +
+  geom_bar(width = 1)+ 
+  coord_polar(theta = "y")
+```  
+
+Standardize null, NULL, NA and NU
+
+```{r}
+scene_mbr_dim$psnl_prov_state_cd[scene_mbr_dim$psnl_prov_state_cd=="null"]<-NA
+scene_mbr_dim$psnl_prov_state_cd[scene_mbr_dim$psnl_prov_state_cd=="NULL"]<-NA
+scene_mbr_dim$psnl_prov_state_cd[scene_mbr_dim$psnl_prov_state_cd=="NA's"]<-NA
+```
+
+
+### Personal City (psnl_city)
+
+The city of the address.
+ 
+Comments:
+City names appear in different variations, e.g. "Toronto", "toronto","TORONTO". Hence, data cleaning is required where names have to be standardized prior to analysis.
+
+```{r}
+# convert all city names to lower case
+scene_mbr_dim$psnl_city <- str_to_lower(scene_mbr_dim$psnl_city)
+
+# convert all characters to ASCII
+scene_mbr_dim$psnl_city <- iconv(scene_mbr_dim$psnl_city, to = "ASCII//TRANSLIT")
+
+# remove all punctuations from city names
+scene_mbr_dim$psnl_city <- str_replace_all(scene_mbr_dim$psnl_city,"[[:punct:]]","")
+
+# standardize city names
+# list and count city names per FSA, take city name with highest count in each FSA
+fsa_city <- group_by(scene_mbr_dim, psnl_post_cd, psnl_city)%>%
+  summarise(count = n())%>%
+  arrange(desc(count))
+
+dupe_fsa<- group_by(fsa_city, psnl_post_cd)%>%
+  summarise(count = n())%>%
+  filter(count>1)%>%
+  arrange(desc(count))
+
+dupe_city <- fsa_city%>%
+  filter(psnl_post_cd %in% dupe_fsa$psnl_post_cd)
+
+Max_city <- dupe_city %>%
+  group_by(psnl_post_cd) %>% slice(which.max(count))
+
+Max_city <- subset(Max_city, select = -c(count))
+
+# replace low freq city names (likely mispelling) with high freq city name within the same FSA
+scene_mbr_dim <-
+  left_join(scene_mbr_dim, Max_city, by="psnl_post_cd")
+
+colnames(scene_mbr_dim)[8]<-"psnl_city"
+colnames(scene_mbr_dim)[39]<-"psnl_city_2"
+
+
+for (i in 1:nrow(scene_mbr_dim)) {
+  if (scene_mbr_dim$psnl_post_cd[i] %in% Max_city$psnl_post_cd) {
+    scene_mbr_dim[i, "psnl_city"] <- scene_mbr_dim[i, "psnl_city_2"] 
+  }else
+    scene_mbr_dim[i, "psnl_city"] <- scene_mbr_dim[i, "psnl_city"]
+}
+
+scene_mbr_dim <- subset(scene_mbr_dim, select = -c(psnl_city_2))
+
+# individual changes
+scene_mbr_dim<-
+  mutate(scene_mbr_dim, psnl_city=ifelse(grepl('montrACal',scene_mbr_dim$psnl_city,                                                ignore.case = TRUE),'montreal',psnl_city))
+scene_mbr_dim<-
+  mutate(scene_mbr_dim, psnl_city=ifelse(grepl('montrACalnord',scene_mbr_dim$psnl_city,                                                ignore.case = TRUE),'montreal',psnl_city))  
+scene_mbr_dim<-
+  mutate(scene_mbr_dim, psnl_city=ifelse(grepl('montrealnord',scene_mbr_dim$psnl_city,                                                ignore.case = TRUE),'montreal',psnl_city))  
+scene_mbr_dim<-
+  mutate(scene_mbr_dim, psnl_city=ifelse(grepl('montreasl',scene_mbr_dim$psnl_city,                                                ignore.case = TRUE),'montreal',psnl_city))  
+scene_mbr_dim<-
+  mutate(scene_mbr_dim, psnl_city=ifelse(grepl('monrteal',scene_mbr_dim$psnl_city,                                                ignore.case = TRUE),'montreal',psnl_city))  
+scene_mbr_dim<-
+  mutate(scene_mbr_dim, psnl_city=ifelse(grepl('QuACbec',scene_mbr_dim$psnl_city, 
+                          ignore.case = TRUE),'quebec',psnl_city))  
+scene_mbr_dim<-
+  mutate(scene_mbr_dim, psnl_city=ifelse(grepl('toronto thornhiil',scene_mbr_dim$psnl_city, 
+                          ignore.case = TRUE),'thornhill',psnl_city)) 
+scene_mbr_dim<-
+  mutate(scene_mbr_dim, psnl_city=ifelse('tor','toronto',psnl_city)) 
+scene_mbr_dim<-
+  mutate(scene_mbr_dim, psnl_city=ifelse(grepl('northyork',scene_mbr_dim$psnl_city, 
+                          ignore.case = TRUE),'north york',psnl_city)) 
+scene_mbr_dim<-
+  mutate(scene_mbr_dim, psnl_city=ifelse(grepl('northvancouver',scene_mbr_dim$psnl_city, 
+                          ignore.case = TRUE),'north vancouver',psnl_city)) 
+scene_mbr_dim<-
+  mutate(scene_mbr_dim, psnl_city=ifelse(grepl('saintlAConard',scene_mbr_dim$psnl_city, 
+                          ignore.case = TRUE),'saintleonard',psnl_city)) 
+scene_mbr_dim<-
+  mutate(scene_mbr_dim, psnl_city=ifelse(grepl('sanitleonard',scene_mbr_dim$psnl_city, 
+                          ignore.case = TRUE),'saintleonard',psnl_city))
+scene_mbr_dim<-
+  mutate(scene_mbr_dim, psnl_city=ifelse(grepl('saintjeansurrichelieu',scene_mbr_dim$psnl_city, 
+                          ignore.case = TRUE),'saint jean sur richelieux',psnl_city))
+scene_mbr_dim<-
+  mutate(scene_mbr_dim, psnl_city=ifelse(grepl('stjeanrichelieu',scene_mbr_dim$psnl_city, 
+                          ignore.case = TRUE),'saint jean sur richelieux',psnl_city))
+scene_mbr_dim<-
+  mutate(scene_mbr_dim, psnl_city=ifelse(grepl('stjeansurrichel',scene_mbr_dim$psnl_city, 
+                          ignore.case = TRUE),'saint jean sur richelieux',psnl_city))
+scene_mbr_dim<-
+  mutate(scene_mbr_dim, psnl_city=ifelse(grepl('stjACrAme',scene_mbr_dim$psnl_city, 
+                          ignore.case = TRUE),'st jerome',psnl_city))
+scene_mbr_dim<-
+  mutate(scene_mbr_dim, psnl_city=ifelse(grepl('troisriviAres',scene_mbr_dim$psnl_city, 
+                          ignore.case = TRUE),'troisrivieres',psnl_city))
+scene_mbr_dim<-
+  mutate(scene_mbr_dim, psnl_city=ifelse(grepl('lACvis',scene_mbr_dim$psnl_city, 
+                          ignore.case = TRUE),'levis',psnl_city))
+scene_mbr_dim<-
+  mutate(scene_mbr_dim, psnl_city=ifelse(grepl('longuieul',scene_mbr_dim$psnl_city, 
+                          ignore.case = TRUE),'longueuil',psnl_city))
+scene_mbr_dim<-
+  mutate(scene_mbr_dim, psnl_city=ifelse(grepl('rcihmond',scene_mbr_dim$psnl_city, 
+                          ignore.case = TRUE),'richmond',psnl_city))
+scene_mbr_dim<-
+  mutate(scene_mbr_dim, psnl_city=ifelse(grepl('rmd',scene_mbr_dim$psnl_city, 
+                          ignore.case = TRUE),'richmond',psnl_city))
+
+group_by(scene_mbr_dim, psnl_city)%>%
+  summarise(count= n())%>%
+  arrange(desc(count))
+```
+Comment:
+Approximately 10% of the customers are from Toronto
+Additional 8% customers are from Mississauga, Brampton, and Scarorough
+
+
+
+### Personal Country Code (psnl_cntry_cd)
+
+The country code of the address.
+
+```{r}
+summary(as.factor(scene_mbr_dim$psnl_cntry_cd))
+```
+
+Comments:
+All customers are from Canada.
+
+Remove this column.
+```{r}
+scene_mbr_dim = subset(scene_mbr_dim, select = -c(psnl_cntry_cd))
+```
+
+### Delivery Mode Type Code (dlvy_mode_tp_cd)
+
+```{r}
+summary(as.factor(scene_mbr_dim$dlvy_mode_tp_cd))
+```
+
+Comments:
+All values are NULL
+
+Remove this Column.
+```{r}
+scene_mbr_dim = subset(scene_mbr_dim, select = -c(dlvy_mode_tp_cd))
+```
+
+
+### Kill Word Flag (kill_word_f)
+
+```{r}
+summary(as.factor(scene_mbr_dim$kill_word_f))
+```
+
+Comments:
+All values are NULL
+
+Remove this column.
+
+```{r}
+scene_mbr_dim = subset(scene_mbr_dim, select = -c(kill_word_f))
+```
+
+
+### Web Access Flag (web_acss_f)
+
+Indicates if the customer can access the web site.
+
+```{r}
+summary(as.factor(scene_mbr_dim$web_acss_f))
+```
+
+Comments:
+All values are 0.
+
+Remove this column.
+
+```{r}
+scene_mbr_dim = subset(scene_mbr_dim, select = -c(web_acss_f))
+```
+
+
+
+### Suspended Flag (suspended_f)
+
+Indicates whether the customer's login has been suspended or not.
+
+Comments:
+3.7% customers have been suspended
+
+```{r}
+summary(as.factor(scene_mbr_dim$suspended_f))
+```
+
+
+### Household Income
+
+- Household Income Reference Key (hh_incm_ref_key)
+- Household Income Description (hh_incm_desc)
+
+Household income key and its description. It shows income ranges.
+
+```{r}
+group_by(scene_mbr_dim, hh_incm_desc)%>%
+  summarise(count=n(),
+            proportion= (count/length(scene_mbr_dim$hh_incm_desc)))
+```
+
+Comments:
+85% of data is unknown or is not provided by the customers.
+
+Remove this column.
+```{r}
+scene_mbr_dim = subset(scene_mbr_dim, select = -c(hh_incm_ref_key, hh_incm_desc))
+```
+
+
+### Program Heard About
+
+- Program Heard About From Input (pgm_hd_abt_from_input) 
+- Program Heard About From Reference Key (pgm_hd_abt_from_ref_key)
+- Program Heard About From Description (pgm_hd_abt_from_desc)
+
+Program Heard About From Input and Reference Key.
+
+```{r}
+group_by(scene_mbr_dim, pgm_hd_abt_from_input)%>%
+  summarise(count=n())%>%
+  arrange(desc(count))
+  
+group_by(scene_mbr_dim, pgm_hd_abt_from_desc)%>%
+  summarise(count=n())%>%
+  arrange(desc(count))
+
+scene_mbr_dim%>%
+  ggplot(aes(x = factor(1), fill = factor(pgm_hd_abt_from_desc))) +
+  geom_bar(width = 1)+ 
+  coord_polar(theta = "y")
+```
+
+Comments:
+This includes fields which tell where the customer heard about the Scene program. First two fields include fields like Facebook, Website, Internet, Friends, etc, while Field 19 gives generic classification with only 5 possible fields, viz., Friend/Family, Theatre, Branch, Advertising and Other.
+
+99% of the data for Fields 17 and 18 is missing.
+However, Field 19 has lower proportion of data missing and can be used for predictions. In Field 19, ~two thirds of data is missing.
+
+Remove this column.
+
+```{r}
+scene_mbr_dim = subset(scene_mbr_dim, select = -c(pgm_hd_abt_from_input, pgm_hd_abt_from_ref_key, pgm_hd_abt_from_desc))
+```
+
+
+### Gender Type
+
+- Gender Type Reference Key (gndr_tp_ref_key)
+- Gender Type Description (gndr_desc)
+
+Gender type.
+
+Comments:
+56% of the data is females.
+
+```{r}
+summary(as.factor(scene_mbr_dim$gndr_desc))
+```
+
+### Preferred Location
+
+- Preferred Location Reference Key (prefrd_loctn_ref_key)
+- Preferred Location Description (prefrd_loctn_desc)
+
+Preferred location of the theatre for the movie
+
+Comments:
+More than half of the data is unavailable.
+Scotiabank Theatre in Toronto and Cineplex Odeon South Edmonton are rated the highest among the preferred theatres.
+If we had the exact address of the theatres, it can be combined with the postal codes of the customers to derive more insights.
+
+```{r}
+group_by(scene_mbr_dim, prefrd_loctn_desc)%>%
+  summarise(count=n_distinct(scene_mbr_key))%>%
+  arrange(desc(count))
+
+scene_mbr_dim%>%
+  filter(prefrd_loctn_desc!='Unknown')%>%
+  group_by(psnl_city, prefrd_loctn_desc)%>%
+  summarise(count=n_distinct(scene_mbr_acct_key))%>%
+  arrange(desc(count))  
+```
+
+
+### Email Preference
+
+- Email Preference Reference Key (email_prefnc_ref_key)
+- Email Preference Description (email_prefnc_desc)
+
+Preferred format for emails
+
+Comments:
+78% customers prefer HTML emails while 17% of preferences are unknown.
+
+```{r}
+group_by(scene_mbr_dim, email_prefnc_desc)%>%
+  summarise(count=n())%>%
+  arrange(desc(count))
+```
+
+### Education Level
+
+- Education level Type Reference Key (ed_lvl_tp_ref_key)
+- Education level Type Description  (ed_lvl_desc)
+
+Education level of the customers.
+
+Comments:
+70% of the data is missing. 
+
+```{r}
+group_by(scene_mbr_dim, ed_lvl_desc) %>%
+  summarise(count=n())%>%
+  arrange(desc(count))
+```
+
+
+### Preferred Show Time
+
+- Preferred Show Time Reference Key (prefrd_show_tm_ref_key)
+- Preferred Show Time Description (prefrd_show_tm_desc) 
+
+Preferred Show Time.
+
+Comments:
+58% of the data is missing
+Of the people who have responded, 7 pm show is preferred by 39%
+
+```{r}
+group_by(scene_mbr_dim, prefrd_show_tm_desc)%>%
+  summarise(count=n())%>%
+  arrange(desc(count))
+```
+
+The fields are ordered using the following code.
+
+```{r}
+show_time <- c("1:00pm","2:00pm","3:00pm","4:00pm","5:00pm","6:00pm","7:00pm",
+               "8:00pm","9:00pm","10:00pm","11:00pm","12 midnight")
+
+scene_mbr_dim$prefrd_show_tm_desc<-factor(scene_mbr_dim$prefrd_show_tm_desc,
+                                             levels=show_time, ordered=TRUE)
+```
+
+40% of customers in Markham and Winnipeg prefer show timings before 6 pm. On the other hand, over 90% of customers in Saskatoon prefer show after 6 pm.
+
+These preference can be used for sceduling shows as well as pricing them based on the demand at different times in each city.
+
+```{r}
+group_by(scene_mbr_dim, psnl_city)%>%
+  summarise(count= n())%>%
+  arrange(desc(count))%>%
+  filter(count>100)%>%
+  left_join(scene_mbr_dim)%>%
+  filter(prefrd_show_tm_desc!='Unknown')%>%
+  ggplot()+
+  geom_bar(mapping=aes(x=psnl_city, fill = prefrd_show_tm_desc), position="fill")
+```
+
+
+### Number of Household People
+
+- Number Of Household People Reference Key (num_of_hh_pple_ref_key)
+- Number Of Household People Description (num_of_hh_pple_desc)
+
+60% of the data is missing.
+Of the overall households, 15% are single person households.
+
+```{r}
+group_by(scene_mbr_dim, num_of_hh_pple_desc)%>%
+  summarise(count=n())%>%
+  arrange(desc(count))
+```
+
+
+There is no significant variation in the preferred timing based on the number of people in the household. However, this variable can be used for classification as it can indicate the number of kids in the household and children can be targetted with specific genre. It can also indicate potential profit opportunity size.
+
+```{r}
+scene_mbr_dim%>%
+  filter(prefrd_show_tm_desc!='Unknown')%>%
+  ggplot()+
+  geom_bar(mapping=aes(x=num_of_hh_pple_desc, fill = prefrd_show_tm_desc), position="fill")
+```
+
+
+### Movie Going Frequency
+
+- Movie Going Frequency Reference Key (movie_gng_frq_ref_key)
+- Movie Going Frequency Description (movie_gng_frq_ref_desc)
+
+Movie Going Frequency
+
+Comments:
+
+Setting the frequency variable in correct order
+
+```{r}
+
+movie_freq <- c("<2","3-6","7-10","11-20","20+")
+
+scene_mbr_dim$movie_gng_frq_ref_desc<-
+factor(scene_mbr_dim$movie_gng_frq_ref_desc,levels=movie_freq, ordered=TRUE)
+```
+
+60% data missing
+Customers are evenly spread over the frequency ranges 20+, 7-10, 11-20 and 3-6
+
+```{r}
+group_by(scene_mbr_dim, movie_gng_frq_ref_desc)%>%
+  summarise(count=n())%>%
+  arrange(desc(count))
+```
+
+Customers born after 1975 tend to watch more movies (>7)
+
+```{r}
+ggplot(scene_mbr_dim, aes(x=movie_gng_frq_ref_desc, y=brth_dt))+
+  geom_jitter()
+```
+
+
+### Marital Status
+
+- Marital Status Reference Key (mrtl_stat_ref_key)
+- Marital Status Description (mrtl_stat_desc)
+
+Marital status
+
+Comments:
+35% data missing, 35% singles and 25% married or common law
+
+```{r}
+group_by(scene_mbr_dim, mrtl_stat_desc)%>%
+  summarise(count=n())%>%
+  arrange(desc(count))
+```
+
+Singles tend to watch more movies compared to Married or Common Law.
+
+```{r}
+scene_mbr_dim%>%
+  filter(mrtl_stat_desc!='Unknown'&movie_gng_frq_ref_desc!='Unknown')%>%
+  ggplot(aes(x=mrtl_stat_desc, fill=movie_gng_frq_ref_desc))+
+  geom_bar()
+```
+
+### Language
+
+- Language Reference Key (lang_ref_key)
+- Language Description (lang_desc)
+
+Comments:
+Over 90% of the customers have English as the preferred language.
+
+```{r}
+group_by(scene_mbr_dim, lang_desc)%>%
+  summarise(count=n())%>%
+  arrange(desc(count))
+```
+
+As expected, 96% of the customers with French preference are from Quebec and the top cities are Montreal, Quebec, Laval and Gatineau.
+
+```{r}
+scene_mbr_dim%>%
+  filter(lang_desc=='French')%>%
+  group_by(psnl_prov_state_cd, psnl_city)%>%
+  summarise(count=n())%>%
+  arrange(desc(count))
+```
+
+
+
+### Scene Activity Status (scene_acty_stat)
+
+0 = Unconfirmed - Members are Unconfirmed by default. These members have not had points expired, but they can be considered for points expiry.
+1 = Confirmed Active - Members that are Confirmed Active are not to have points expired.
+2 = Dormant - Members that are Dormant have had their points expired"""
+
+Comments:
+47% of the data is missing and 49% data is "Unconfirmed".
+
+```{r}
+group_by(scene_mbr_dim, scene_acty_stat)%>%
+  summarise(count=n())%>%
+  arrange(desc(count))
+```
+
+
+
+## Summary
+
+Here is a preview of the cleaned data.
+
+```{r}
+head(scene_mbr_dim, n=20)
+```
+
+
+
+## Write the clean table out
+
+```{r}
+write_csv(scene_mbr_dim, paste(out_path, 'scene_mbr_dim.csv', sep=""))
+```
+
+
+
+
+
+
+
+# Table: iwd_time
+
+This table contains date and time information linkable to other tables through the field 'time_key'.
+
+
+## Load the data
+
+```{r}
+iwd_time <- read_csv(paste(in_path, 'iwd_time.csv', sep=""))
+
+# remove 'a.' from all column names
+names(iwd_time) <- substring(names(iwd_time), 3)
+```
+
+## variable Definition & Exploration
+
+### time_key
+
+This is the common key to link time information from this table back to other tables.
+
+Count the number of keys. 
+```{r}
+length(iwd_time$time_key)
+```
+
+
+Check if keys are unique.
+
+```{r}
+summary(as.factor(iwd_time$time_key))
+
+group_by(iwd_time,time_key)%>%
+  summarise(count=n())%>%
+  filter(count>1)
+```
+
+Comment: No duplicate, 9657 unique time keys
+
+
+### time_lvl
+
+This field categorizes time_key into 4 levels: Day, Month, Quarter, Year
+```{r}
+summary(as.factor(iwd_time$time_lvl))
+```
+
+### time_seq_nbr
+
+This is a system generated integer number indicating the sequence relationship of corresponding dates.
+
+Check if values are one-to-one with keys.
+```{r}
+group_by(iwd_time,time_key, time_seq_nbr)%>%
+  summarise(count=n())%>%
+  filter(count>1)
+```
+
+### time_yr_seq_nbr
+
+This is a system generated integer number indicating the sequence relationship of corresponding years.
+
+Check if values are one-to-one with keys.
+```{r}
+group_by(iwd_time,time_key, time_yr_seq_nbr)%>%
+  summarise(count=n())%>%
+  filter(count>1)
+```
+
+### time_crnt_f
+
+"This is a Y/N flag indicating whether the given time is within current month."
+<span style="color:blue">copied from metadata, not sure what this means</span>
+
+74% of keys have value "Y" in this field.
+
+```{r}
+summary(as.factor(iwd_time$time_crnt_f))
+```
+
+### anul_clndr_code
+
+This indicates the calendar year of the corresponding time key.
+
+```{r}
+summary(iwd_time$anul_clndr_code)
+```
+
+Comment: earliest calendar year stamp: 1994, latest calendar year stamp: 2021
+
+
+
+### anual_fncl_code
+This indicates the bank's fiscal year of the corresponding time key.
+
+```{r}
+summary(iwd_time$anul_fncl_code)
+```
+
+Comment: earliest fiscal year stamp: 1994, latest fiscal year stamp: 2021
+
+
+Check if calendar year always equal fiscal year, Returned False.
+```{r}
+all(iwd_time$anul_clndr_code == iwd_time$anul_fncl_code)
+
+iwd_time %>%
+  filter(anul_clndr_code != anul_fncl_code) %>%
+  select(mo_clndr_code) %>%
+  group_by(mo_clndr_code) %>%
+  count(mo_clndr_code)
+```
+
+Comment: Looking at the month where calendar year differs from fiscal year, November seems to be the start of fiscal year at Scotiabank.
+
+
+### qtrly_clndr_code
+This field indicates the calendar quarter of the corresponding time_key.
+
+```{r}
+summary(as.factor(iwd_time$qtrly_clndr_code))
+
+iwd_time %>%
+  filter(qtrly_clndr_code == "null") %>%
+  select(time_lvl) %>%
+  group_by(time_lvl) %>%
+  count(time_lvl)
+```
+
+Comment: 28 missing values found from quarter code, all for year level time keys.
+
+### qtrly_fncl_code
+This field indicates the fiscal quarter of the corresponding time_key.
+```{r}
+summary(as.factor(iwd_time$qtrly_fncl_code))
+
+iwd_time %>%
+  filter(qtrly_fncl_code == "null") %>%
+  select(time_lvl) %>%
+  group_by(time_lvl) %>%
+  count(time_lvl)
+
+iwd_time%>%
+  filter(!time_lvl %in% c("Year", "Quarter") ) %>%
+  select(qtrly_fncl_code, mo_clndr_code) %>%
+  distinct(qtrly_fncl_code, mo_clndr_code)
+```
+
+Comment: fiscal qtr 1: Nov-Jan, fiscal qtr 2: Feb-Apr, fiscal qtr 3: May-Jul, fiscal qtr 4: Aug-Oct
+
+### mo_clndr_code
+
+This is the name of the calendar month.
+
+```{r}
+summary(as.factor(iwd_time$mo_clndr_code))
+```
+
+
+### day_of_wk_code
+
+This is the day of week presented in number format.
+
+```{r}
+summary(as.factor(iwd_time$day_of_wk_code))
+```
+
+### day_of_wk_desc
+
+```{r}
+summary(as.factor(iwd_time$day_of_wk_desc))
+
+iwd_time%>%
+  filter(time_lvl == "Day" ) %>%
+  select(day_of_wk_code, day_of_wk_desc) %>%
+  distinct(day_of_wk_code, day_of_wk_desc)
+```
+
+Comment: Week code 1 is Sunday, 2 is Monday, ... , 7 is Saturday 
+
+
+### day_dt
+
+This is the date value corresponding to the day level time keys.
+
+```{r}
+summary(as.Date(iwd_time$day_dt))
+```
+
+
+### anul_fncl_key
+
+This seems to be a system generated integer representing the sequence position of the corresponding fiscal year.
+Looks like the coding algorithm changed in 2004.
+
+```{r}
+summary(iwd_time$anul_fncl_key)
+
+ggplot(data = iwd_time) + geom_point(mapping = aes(x = anul_fncl_code, y = anul_fncl_key))
+```
+
+### qtrly_fncl_key
+
+This seems to be a system generated integer representing the sequence position of the corresponding fiscal quarter.
+
+```{r}
+summary(as.factor(iwd_time$qtrly_fncl_key))
+```
+
+### mo_fncl_key
+
+This seems to be a system generated integer representing the sequence position of the corresponding month.
+
+```{r}
+summary(as.factor(iwd_time$mo_fncl_key))
+```
+
+### day_fncl_key
+
+This seems to be a system generated integer representing the sequence position of the corresponding date.
+
+```{r}
+summary(as.factor(iwd_time$day_fncl_key))
+```
+
+### time_desc
+This is the text form description indicating year and fiscal quarter
+
+```{r}
+summary(as.factor(iwd_time$time_desc))
+```
+
+### time_lvl_st_dt
+This field indicates the start date of a period (month, quarter, etc.)
+
+### time_lvl_end_dt
+This field indicates the end date of a period (month, quarter, etc.)
+
+```{r}
+iwd_time%>%
+  filter(time_lvl == "Month" ) %>%
+  select(anul_clndr_code, mo_clndr_code, time_lvl_st_dt, time_lvl_end_dt) %>%
+  distinct(anul_clndr_code, mo_clndr_code, time_lvl_st_dt, time_lvl_end_dt)
+
+iwd_time%>%
+  filter(time_lvl == "Quarter" ) %>%
+  select(anul_clndr_code, qtrly_clndr_code, time_lvl_st_dt, time_lvl_end_dt) %>%
+  distinct(anul_clndr_code, qtrly_clndr_code, time_lvl_st_dt, time_lvl_end_dt)
+
+iwd_time%>%
+  filter(time_lvl == "Year" ) %>%
+  select(anul_clndr_code, time_lvl_st_dt, time_lvl_end_dt) %>%
+  distinct(anul_clndr_code, time_lvl_st_dt, time_lvl_end_dt)
+
+```
+
+
+## Summary
+
+Here is a preview of the cleaned data.
+
+```{r}
+head(iwd_time, n=20)
+```
+
+
+## Write the clean table out
+
+```{r}
+write_csv(iwd_time, paste(out_path, 'iwd_time.csv', sep=""))
+```
+
+
+
+
+
+
+
+# Table: scene_pt_tp_dim
+
+This table provides descriptive information, such as point types, merchant names and transaction source, to transactions recorded in the 'scene_pt_fact' table.
+
+## Load the data
+
+```{r}
+scene_pt_tp_dim <- read_csv(paste(in_path, 'scene_pt_tp_dim.csv', sep=""), quote = "\"")
+
+```
+
+## Variable Definitions and Exploration
+
+### scene_pt_tp_key
+
+This is a unique identifier/key for point types. Use this field to link this table back to the 'scene_pt_fact' table.
+
+```{r}
+summary(as.factor(scene_pt_tp_dim$scene_pt_tp_key))
+
+group_by(scene_pt_tp_dim, scene_pt_tp_key)%>%
+  summarise(count=n())%>%
+  filter(count>1)
+```
+
+
+### cd
+
+Unique codes assigned to each of the point types
+
+```{r}
+summary(as.factor(scene_pt_tp_dim$cd))
+
+group_by(scene_pt_tp_dim, cd)%>%
+  summarise(count=n())%>%
+  filter(count>1)
+```
+
+### nm
+The name of the corresponding reward point type for each code
+
+```{r}
+summary(as.factor(scene_pt_tp_dim$nm))
+
+a <- group_by(scene_pt_tp_dim, nm)%>%
+  summarise(count=n())%>%
+  filter(count>1)
+
+scene_pt_tp_dim %>%
+  filter(nm %in% a$nm) %>%
+  select(nm, cd, txn_src) %>%
+  arrange(desc(nm))
+```
+
+Comment: point type name is occasionally not unique. FOr example, BNSSURVEY2500 & BNSURVEY1000 share the same name.
+
+### desc
+A textual description of the reward point type
+
+```{r}
+summary(as.factor(scene_pt_tp_dim$desc))
+
+b <- group_by(scene_pt_tp_dim, desc)%>%
+  summarise(count=n())%>%
+  filter(count>1)
+
+scene_pt_tp_dim %>%
+  filter(desc %in% b$desc) %>%
+  select(desc, cd, txn_src) %>%
+  arrange(desc(desc))
+
+all(a == b)
+```
+
+Comment: point type description is occasionally not unique as well for the same reason as the 'nm' field. Name and description fields are however, one-to-one.
+
+### txn_src
+Transaction source.
+BNS = D2D
+CIN = Cineplex
+CNC = Contact Center
+SCE = SCENE
+VCL = VISA
+
+```{r}
+summary(as.factor(scene_pt_tp_dim$txn_src))
+
+scene_pt_tp_dim %>%
+  filter(txn_src == "BNS") %>%
+  select(txn_src, cd, nm, desc) %>%
+  arrange(desc(nm))
+
+```
+
+Comment: BNS accounts for most of the point types in the table, as each POS location seem to be have its own transaction code.
+
+## create clean categories as new variables
+
+### txn_tp_1
+
+Newly created transaction category defining whether the transaction involves issuance, redemption or reversal of points.
+
+```{r}
+# define transaction type 1 as issuance, redemption or reversal
+
+for (i in 1:nrow(scene_pt_tp_dim)) {
+  if (grepl("redem", str_to_lower(scene_pt_tp_dim$desc[i])) == TRUE) {
+    scene_pt_tp_dim[i, "txn_tp_1"] <- "redemption"
+  } else if (grepl("revers", str_to_lower(scene_pt_tp_dim$desc[i])) == TRUE) {
+    scene_pt_tp_dim[i, "txn_tp_1"] <- "reversal"  
+  } else if (grepl("deactivation", str_to_lower(scene_pt_tp_dim$desc[i])) == TRUE) {
+    scene_pt_tp_dim[i, "txn_tp_1"] <- "deactivation"  
+  } else
+    scene_pt_tp_dim[i, "txn_tp_1"] <- "issuance"  
+}
+```
+
+### txn_tp_2
+
+Newly created transaction category defining whether points were given regularly or as part of special promotion.
+
+```{r}
+# define transaction type 2 as regular or bonus points
+
+for (i in 1:nrow(scene_pt_tp_dim)) {
+  if (grepl("deactivation", str_to_lower(scene_pt_tp_dim$desc[i])) == TRUE) {
+    scene_pt_tp_dim[i, "txn_tp_2"] <- "deactivation"
+  } else if(grepl("enrol", str_to_lower(scene_pt_tp_dim$desc[i])) == TRUE) {
+    scene_pt_tp_dim[i, "txn_tp_2"] <- "enrollbonus"
+  } else if (grepl("open", str_to_lower(scene_pt_tp_dim$desc[i])) == TRUE) {
+    scene_pt_tp_dim[i, "txn_tp_2"] <- "enrollbonus"
+  } else if (grepl("new cust", str_to_lower(scene_pt_tp_dim$desc[i])) == TRUE) {
+    scene_pt_tp_dim[i, "txn_tp_2"] <- "enrollbonus"
+  } else if (grepl("activation", str_to_lower(scene_pt_tp_dim$desc[i])) == TRUE) {
+    scene_pt_tp_dim[i, "txn_tp_2"] <- "enrollbonus"
+  } else if (grepl("promo", str_to_lower(scene_pt_tp_dim$desc[i])) == TRUE) {
+    scene_pt_tp_dim[i, "txn_tp_2"] <- "promobonus"
+  } else if(grepl("campaign", str_to_lower(scene_pt_tp_dim$desc[i])) == TRUE) {
+    scene_pt_tp_dim[i, "txn_tp_2"] <- "promobonus"  
+  } else if(grepl("survey", str_to_lower(scene_pt_tp_dim$desc[i])) == TRUE) {
+    scene_pt_tp_dim[i, "txn_tp_2"] <- "surveybonus"  
+  } else if(grepl("bonus", str_to_lower(scene_pt_tp_dim$desc[i])) == TRUE) {
+    scene_pt_tp_dim[i, "txn_tp_2"] <- "otherbonus" 
+  } else
+    scene_pt_tp_dim[i, "txn_tp_2"] <- "regular"  
+}
+```
+
+### txn_tp_3
+
+Newly created transaction category defining whether or not transacions were at cineplex and scene partners.
+
+
+```{r}
+# define transaction type 3 as scene vs non-scene transactions
+for (i in 1:nrow(scene_pt_tp_dim)) {
+  if (grepl("non cineplex", str_to_lower(scene_pt_tp_dim$desc[i])) == TRUE) {
+    scene_pt_tp_dim[i, "txn_tp_3"] <- "non_cin"
+  } else if (grepl("other place", str_to_lower(scene_pt_tp_dim$desc[i])) == TRUE) {
+    scene_pt_tp_dim[i, "txn_tp_3"] <- "non_cin"  
+  } else if (grepl("cineplex", str_to_lower(scene_pt_tp_dim$desc[i])) == TRUE) {
+    scene_pt_tp_dim[i, "txn_tp_3"] <- "cin"
+  } else if (grepl("famous", str_to_lower(scene_pt_tp_dim$desc[i])) == TRUE) {
+    scene_pt_tp_dim[i, "txn_tp_3"] <- "cin"
+  } else if (grepl("galax", str_to_lower(scene_pt_tp_dim$desc[i])) == TRUE) {
+    scene_pt_tp_dim[i, "txn_tp_3"] <- "cin"  
+  } else if (grepl("silver city", str_to_lower(scene_pt_tp_dim$desc[i])) == TRUE) {
+    scene_pt_tp_dim[i, "txn_tp_3"] <- "cin" 
+  } else if (grepl("colossus", str_to_lower(scene_pt_tp_dim$desc[i])) == TRUE) {
+    scene_pt_tp_dim[i, "txn_tp_3"] <- "cin"  
+  } else if (grepl("clossus", str_to_lower(scene_pt_tp_dim$desc[i])) == TRUE) {
+    scene_pt_tp_dim[i, "txn_tp_3"] <- "cin"  
+  } else if (grepl("coliseum", str_to_lower(scene_pt_tp_dim$desc[i])) == TRUE) {
+    scene_pt_tp_dim[i, "txn_tp_3"] <- "cin"  
+  } else if (grepl("cloiseum", str_to_lower(scene_pt_tp_dim$desc[i])) == TRUE) {
+    scene_pt_tp_dim[i, "txn_tp_3"] <- "cin"  
+  } else if (grepl("cinema", str_to_lower(scene_pt_tp_dim$desc[i])) == TRUE) {
+    scene_pt_tp_dim[i, "txn_tp_3"] <- "cin"  
+  } else
+    scene_pt_tp_dim[i, "txn_tp_3"] <- "unknown"  
+}
+```
+
+
+
+## Summary
+
+Here is a preview of the cleaned data.
+
+```{r}
+head(scene_pt_tp_dim, n=20)
+```
+
+## Write the clean table out
+
+```{r}
+write_csv(scene_pt_tp_dim, paste(out_path, 'scene_pt_tp_dim.csv', sep=""))
+```
+
+
+
+
+
+
+
+
+
+
+# Table: scene_pt_fact
+
+This table contains the transactions for customers over a time period of December 2006 to September 2016. Each transaction contains the points awarded to or redeemed by the customers, which can be due to financial transactions as well as due to certain non-financial events. Each transaction is associated with a timekey, which indicates the month of transaction. Transaction details beyond numerical value can be linked through a point type key.
+
+
+
+## Load the data
+
+
+```{r}
+scene_pt_fact <- read_csv(paste(in_path, 'scene_pt_fact.csv', sep=""))
+```
+
+
+## Join 'scene_pt_fact' table with 'scene_pt_tp_dim' and 'iwd_time' tables.
+
+```{r}
+scene_pt_fact <-
+  left_join(scene_pt_fact, scene_pt_tp_dim, by="scene_pt_tp_key") 
+
+txn_mth_ref <-
+  iwd_time %>%
+  filter(time_lvl == "Month") %>%
+  select(time_key, anul_clndr_code, anul_fncl_code, mo_clndr_code, time_lvl_st_dt, time_lvl_end_dt)
+  
+scene_pt_fact <-
+ left_join(scene_pt_fact, txn_mth_ref, by = c("mth_tm_key"="time_key"))
+```
+
+ 
+## Variable Definitions and Exploration
+
+### Keys
+
+- Scene Membership Account Key (scene_mbr_acct_key)
+- Scene Member Key (scene_mbr_key)
+ 
+These keys are unique for each customer. They are the common keys between the transaction table (scene_pt_fact) and scene member demographics (scene_mbr_dim)
+
+- Point type key (scene_pt_tp_key)
+- Month Level Time Key (mth_tm_key)
+
+These keys were used to join in point type information and time information as shown above.
+
+
+### Points (pt) & Transaction Amount (txn_amt)
+
+These are the number of points earned or deducted for each transaction. They may be: 
+1.  linked to a financial transaction on Scotiabank product, in which case transaction column will have dollar value 
+OR
+2.  linked to an event (such as new account, referral bonus, redemptions, etc.), in which case the transaction column will have NULL
+
+This transaction amount is first formatted to double-digit decimal.
+```{r}
+scene_pt_fact$txn_amt <- parse_double(scene_pt_fact$txn_amt)
+```
+
+Check if pts and transaction dollar amounts make sense within each transaction category. 
+  * if all issuances are positive
+  * if all redemptions, reversals and deactivations are negative
+  
+```{r}
+# pts and txn amt summary on category 1
+group_by(scene_pt_fact, txn_tp_1)%>%
+  summarise(number_of_txns = n(),
+            total_pts = sum(pt),
+            min_pts = min(pt),
+            max_pts = max(pt),
+            total_txn_amt= sum(txn_amt,na.rm=TRUE),
+            min_txn_amt= min(txn_amt,na.rm=TRUE),
+            max_txn_amt= max(txn_amt,na.rm=TRUE))%>%
+  arrange(desc(total_pts))
+
+# check pts described as issuance but pt amt is negative
+txn_check_1 <- scene_pt_fact %>%
+  filter(txn_tp_1 == "issuance" & pt < 0)
+
+mbr_4153709 <- scene_pt_fact %>%
+  filter(scene_mbr_key == 4153709)
+
+# check pts described as reversal but pt amt is positive
+txn_check_2 <- scene_pt_fact %>%
+  filter(txn_tp_1 == "reversal" & pt > 0)
+
+# check pts described as redemption but pt amt is positive
+txn_check_3 <- scene_pt_fact %>%
+  filter(txn_tp_1 == "redemption" & pt > 0)
+
+# check if a financial transacion made but pts got deducted
+txn_check_4 <- scene_pt_fact %>%
+  filter(txn_amt > 0 & pt < 0)
+```
+
+Comments: ~2700 transactions seems wrong out of 235K transactions in the tiny dataset. Many of these seem to have the wrong sign but right number. For example, a transaciton dollar amount of $40.16 is associated with -40 points. +40 points would seem to make sense. Another possibility is that points were redeemed at the same time as purchases are made. We can either impute the ~2700 pt transactions by reversing the sign, or drop these as they account for only 1% of the sampled transactions.
+
+```{r}
+# pts and txn amt summary on category 2 and 3
+group_by(scene_pt_fact, txn_tp_2)%>%
+  summarise(number_of_txns = n(),
+            total_pts = sum(pt),
+            min_pts = min(pt),
+            max_pts = max(pt),
+            total_txn_amt= sum(txn_amt,na.rm=TRUE),
+            min_txn_amt= min(txn_amt,na.rm=TRUE),
+            max_txn_amt= max(txn_amt,na.rm=TRUE))%>%
+  arrange(desc(total_pts))
+
+group_by(scene_pt_fact, txn_tp_3)%>%
+  summarise(number_of_txns = n(),
+            total_pts = sum(pt),
+            min_pts = min(pt),
+            max_pts = max(pt),
+            total_txn_amt= sum(txn_amt,na.rm=TRUE),
+            min_txn_amt= min(txn_amt,na.rm=TRUE),
+            max_txn_amt= max(txn_amt,na.rm=TRUE))%>%
+  arrange(desc(total_pts))
+```
+
+
+
+
+High level summary per customer:
+```{r}
+summary<-
+group_by(scene_pt_fact, scene_mbr_acct_key)%>%
+  summarise(number_of_txns=n(),
+            total_points= sum(pt),
+            total_txn_amt= sum(txn_amt,na.rm=TRUE))%>%
+  arrange(desc(total_points))
+```
+
+Comment: There are 5515 customers in the 'tiny' database, which have a wide range of transactions and points.
+
+```{r}
+summary%>%
+  ggplot(aes(x=number_of_txns))+
+  geom_histogram(bins = 100)
+
+summary%>%
+  ggplot(aes(x=total_points))+
+  geom_histogram(bins = 100)
+  
+
+summary%>%  
+  filter(total_txn_amt==0 & total_points<500)%>%
+  ggplot(aes(x=total_points))+
+  geom_histogram(bins = 1000)  
+  
+summary%>%
+  ggplot(aes(x=total_txn_amt))+
+  geom_histogram(bins = 100)  
+```
+
+Comment:
+The number of transactions show negative exponential distribution.
+
+Total points show a spike near zero, especially there are over 500 customers are 250 points. This indicates that there are customers which were entered in the database but they did not accumulate points. Bonus points on first registration are likely to be 250. <span style="color:blue>can be verified from scene_pt_tp_dim table</span>
+
+There are ~200 customers whose transaction amount is very high, above $100,000
+~39% customers have transaction amount as zero. Indicating that these customers may not have used the card at all.
+<span style="color:blue>need to be more careful here as total number of pts per user aggregates both issuance and redemptions.</span>
+
+
+
+```{r}
+group_by(scene_pt_fact, txn_tp_1)%>%
+  summarise(count=n(),
+            percent = count/length(scene_pt_fact$txn_tp_1)*100,
+            avg_pts_txn = mean(pt),
+            txn_type = mean(txn_amt, na.rm=TRUE))%>%
+  arrange(desc(count))
+
+group_by(scene_pt_fact, txn_tp_2)%>%
+  summarise(count=n(),
+            percent = count/length(scene_pt_fact$txn_tp_2)*100,
+            avg_pts_txn = mean(pt),
+            txn_type = mean(txn_amt, na.rm=TRUE))%>%
+  arrange(desc(count))
+
+group_by(scene_pt_fact, txn_tp_3)%>%
+  summarise(count=n(),
+            percent = count/length(scene_pt_fact$txn_tp_3)*100,
+            avg_pts_txn = mean(pt),
+            txn_type = mean(txn_amt, na.rm=TRUE))%>%
+  arrange(desc(count))
+
+```
+
+
+
+### Scene Membership Account Activity Key (scene_mbr_acct_acty_key)
+
+The unique identifier for Account history.
+
+Comments:
+This variable has value '-1' in all observations and cannot be used for prediction. Remove per code below.
+
+```{r}
+scene_pt_fact = subset(scene_pt_fact, select = -c(scene_mbr_acct_acty_key))
+```
+
+
+
+### cd, nm, desc, txn_src, txn_tp_1, txn_tp_2,txn_tp_3
+
+point type fields merged from the scene_pt_tp_dim  table, described above.
+
+
+### anul_clndr_code, anul_fncl_code, mo_clndr_code, time_lvl_st_dt, 
+
+Converting the months column 'mo_clndr_code' to ordered factor.
+
+```{r}
+scene_pt_fact$mo_clndr_code <- 
+factor(scene_pt_fact$mo_clndr_code, levels = month.name, ordered = TRUE)
+```
+
+
+
+## Summary
+
+```{r}
+head(scene_pt_fact, n=20)
+```
+
+## Write the clean table out
+
+```{r}
+write_csv(scene_pt_fact, paste(out_path, 'scene_pt_fact.csv', sep=""))
+```
+
+
+
+
+
+
+# Table: scene_member_acct_dim
+
+
+This table contains enrollment status and dates associated to Scene accounts.
+
+
+## Load the data
+
+```{r}
+scene_mbr_acct_dim <- read_csv(paste(in_path, 'scene_mbr_acct_dim.csv', sep=""))
+```
+
+
+## Variable Definitions and Exploration
+
+### Keys
+
+- Scene Membership Account Key (scene_mbr_acct_key)
+  This is the unique identifier of Scene Membership Account. The same key is included in 'scene_mbr_dim' and 'scene_pt_fact' tables.
+  
+- Primary Scene Member Key (prim_scene_mbr_key)
+  This field is equivalent to Scene Member Key ('scene_mbr_key') in other tables (such as 'scene_mbr_dim' or 'scene_pt_fact').
+
+
+Check if there is any duplicate keys
+```{r}
+group_by(scene_mbr_acct_dim, scene_mbr_acct_key)%>%
+  summarise(count=n())%>%
+  filter(count>1)
+
+group_by(scene_mbr_acct_dim, scene_mbr_acct_key)%>%
+  summarise(count=n())%>%
+  filter(count>1)
+```
+
+
+### enrollment_stat_cd
+
+Enrollment Status Code
+Possible values:
+
+E = Enrolled
+U = Unenrolled
+P = Pending
+C = Canceled
+
+```{r}
+summary(as.factor(scene_mbr_acct_dim$enrollment_stat_cd))
+```
+
+Comment: In the Tiny dataset, we only saw 2 values in this field, 5,489 (98%) enrolled and 84(2%) unerolled.
+
+### cncl_dt
+
+Cancel date. 98% of the field is 'null'.
+
+```{r}
+summary(as.factor(scene_mbr_acct_dim$cncl_dt))
+```
+
+Change 'null' values to missing and convert field to date format
+
+```{r}
+scene_mbr_acct_dim$cncl_dt[scene_mbr_acct_dim$cncl_dt == "null"]<-NA
+scene_mbr_acct_dim$cncl_dt <- ymd_hms(scene_mbr_acct_dim$cncl_dt)
+```
+
+### scene_src_enrollment_dt
+
+Original member enrollment Date sourced from Maritz.
+
+```{r}
+scene_mbr_acct_dim$scene_src_enrollment_dt <- ymd_hms(scene_mbr_acct_dim$scene_src_enrollment_dt)
+
+summary(scene_mbr_acct_dim$scene_src_enrollment_dt)
+```
+
+### acct_eff_from_tmstamp
+
+Date from which that specific record became effective. 
+
+```{r}
+scene_mbr_acct_dim$acct_eff_from_tmstamp <- ymd_hms(scene_mbr_acct_dim$acct_eff_from_tmstamp)
+
+summary(scene_mbr_acct_dim$acct_eff_from_tmstamp)
+
+summary(as.factor(as.Date(scene_mbr_acct_dim$acct_eff_from_tmstamp)))
+
+scene_mbr_acct_dim["date_lag"] = 
+  difftime(scene_mbr_acct_dim$acct_eff_from_tmstamp, scene_mbr_acct_dim$scene_src_enrollment_dt, units = c("days"))
+
+summary(as.numeric(scene_mbr_acct_dim$date_lag))
+
+ggplot(data=scene_mbr_acct_dim) +
+  geom_point(mapping = aes(x=as.Date(scene_src_enrollment_dt),y= date_lag))
+
+```
+
+Comment: Approximatly 33% of accounts in the Tiny dataset have an effective date of 2010-03-03. This seems to be the date where enrollment data (from Maritz) started to be ingested into a new database. 
+
+### acct_eff_to_tmstamp
+
+Date to which account remains effective.
+
+```{r}
+scene_mbr_acct_dim$acct_eff_to_tmstamp <- ymd_hms(scene_mbr_acct_dim$acct_eff_to_tmstamp)
+
+summary(scene_mbr_acct_dim$acct_eff_to_tmstamp)
+summary(as.factor(scene_mbr_acct_dim$acct_eff_to_tmstamp))
+```
+
+Comment: all records share the same effective to time stamp 9999-12-31 23:59:59.
+
+Remove the column:
+```{r}
+scene_mbr_acct_dim = subset(scene_mbr_acct_dim, select = -c(acct_eff_to_tmstamp))
+```
+
+
+## Summary
+
+```{r}
+head(scene_mbr_acct_dim, n=20)
+```
+
+## Write the clean table out
+
+```{r}
+write_csv(scene_mbr_acct_dim, paste(out_path, 'scene_mbr_acct_dim.csv', sep=""))
+```
+
+
+
+
+

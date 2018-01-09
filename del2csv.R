@@ -186,12 +186,16 @@ in_path = '/global/project/queens-mma/scene/raw/'
 in_path = '/global/home/hpc3552/test/'
 out_path = '/global/project/queens-mma/scene-csv/'
 
+
+tbls = c("xab", "xac", "xad",  "xae", "xaf", "xag", "xah", "xai", "xaj", "xak")
+
+      #write.csv(t, file = paste(out_path, tbl, ".csv", sep=""),row.names=FALSE)
+      #t <- read.delim(paste(in_path, tbl, sep=""), sep = "\x01")
 for (tbl in tbls) {
       print(paste("Reading table ", tbl, sep=""))
-      #t <- read.delim(paste(in_path, tbl, sep=""), sep = "\x01")
-      t <- fread(paste("sed -r 's/\\0//g' ", in_path, tbl, sep=""), sep = "\x01")
-    print(paste("Writing table ", tbl, sep=""))
-    write.csv(t, file = paste(out_path, tbl, ".csv", sep=""),row.names=FALSE)
+      t <- fread(tbl, sep = "\x01", header=FALSE)
+      print(paste("Writing table ", tbl, sep=""))
+      write.table(file=paste(tbl, ".csv", sep=""), x=t, sep=",", quote = c(1:ncol(t)), row.names = FALSE, col.names=FALSE)
       rm(t)
       gc()
 }

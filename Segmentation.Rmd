@@ -1,0 +1,291 @@
+---
+title: "Customer Segmentation"
+author: "Yue Zhuo"
+output: html_document
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Load libraries
+```{r}
+library(tidyverse)
+library(lubridate)
+library(stringr)
+```
+
+
+### Set data path
+```{r}
+in_path = '/global/project/queens-mma/scene-csv/sample0003/clean/'
+```
+
+
+### Load data
+```{r}
+scene_mbr_dim <-read_csv(paste(in_path, 'scene_mbr_dim.csv', sep=""))
+scene_mbr_acct_dim <- read_csv(paste(in_path, 'scene_mbr_acct_dim.csv', sep=""))
+scene_pt_fact <- read_csv(paste(in_path, 'scene_pt_fact.csv', sep=""))
+```
+
+
+### Create point transaction summary per customer
+```{r}
+
+# transform pt and txn amounts to numeric values
+scene_pt_fact$pt<-as.numeric(scene_pt_fact$pt)
+scene_pt_fact$txn_amt<-as.numeric(scene_pt_fact$txn_amt)
+scene_pt_fact$pt[is.na(scene_pt_fact$pt)]<-0
+scene_pt_fact$txn_amt[is.na(scene_pt_fact$txn_amt)]<-0
+
+# calculate aggregated cineplex transationsn per customer per month
+txn_mbr_lvl_1 <- scene_pt_fact %>%
+  filter(txn_tp_3 == "cin")%>%
+  group_by(scene_mbr_acct_key, time_lvl_st_dt, txn_tp_3)%>%
+  summarise(mth_txn_amt_cin = sum(txn_amt))%>%
+  arrange(scene_mbr_acct_key)
+
+# calculate aggregated non-cineplex transationsn per customer per month
+txn_mbr_lvl_2 <- scene_pt_fact %>%
+  filter(txn_tp_3 == "non_cin")%>%
+  group_by(scene_mbr_acct_key, time_lvl_st_dt, txn_tp_3)%>%
+  summarise(mth_txn_amt_non_cin = sum(txn_amt))%>%
+  arrange(scene_mbr_acct_key)
+
+# calculate aggregated pts issuance per customer per month
+txn_mbr_lvl_3 <- scene_pt_fact %>%
+  filter(txn_tp_1 == "issuance")%>%
+  group_by(scene_mbr_acct_key, time_lvl_st_dt, txn_tp_1)%>%
+  summarise(mth_pt_issue_tot = sum(pt))%>%
+  arrange(scene_mbr_acct_key)
+
+# calculate aggregated pts redemption per customer per month
+txn_mbr_lvl_4 <- scene_pt_fact %>%
+  filter(txn_tp_1 == "redemption")%>%
+  group_by(scene_mbr_acct_key, time_lvl_st_dt, txn_tp_1)%>%
+  summarise(mth_pt_redem = sum(pt))%>%
+  arrange(scene_mbr_acct_key)
+
+# calculate aggregated regular pts issuance per customer per month
+txn_mbr_lvl_5 <- scene_pt_fact %>%
+  filter(txn_tp_1 == "issuance", txn_tp_2 == "regular")%>%
+  group_by(scene_mbr_acct_key, time_lvl_st_dt, txn_tp_2)%>%
+  summarise(mth_pt_issue_reg = sum(pt))%>%
+  arrange(scene_mbr_acct_key)
+
+# calculate aggregated enrollment bonus issued per customer per month
+txn_mbr_lvl_6 <- scene_pt_fact %>%
+  filter(txn_tp_2 == "enrollbonus")%>%
+  group_by(scene_mbr_acct_key, time_lvl_st_dt, txn_tp_2)%>%
+  summarise(mth_pt_issue_enrol = sum(pt))%>%
+  arrange(scene_mbr_acct_key)
+
+# calculate aggregated promo bonus issued per customer per month
+txn_mbr_lvl_7 <- scene_pt_fact %>%
+  filter(txn_tp_2 == "promobonus")%>%
+  group_by(scene_mbr_acct_key, time_lvl_st_dt, txn_tp_2)%>%
+  summarise(mth_pt_issue_promo = sum(pt))%>%
+  arrange(scene_mbr_acct_key)
+
+# list of scene members who are also scotiabank customers
+scotia_cust <- scene_pt_fact %>%
+  group_by(scene_mbr_acct_key)%>%
+  summarise(tot_txn = sum(txn_amt))%>%
+  filter(tot_txn != 0)%>%
+  select(scene_mbr_acct_key, tot_txn)
+
+
+# aggregated monthly transactions per customer
+txn_mbr_mth_lvl <- txn_mbr_lvl_1 %>%
+  full_join(txn_mbr_lvl_2, by = c("scene_mbr_acct_key", "time_lvl_st_dt")) %>%
+  full_join(txn_mbr_lvl_3, by = c("scene_mbr_acct_key", "time_lvl_st_dt")) %>%
+  full_join(txn_mbr_lvl_4, by = c("scene_mbr_acct_key", "time_lvl_st_dt")) %>%
+  full_join(txn_mbr_lvl_5, by = c("scene_mbr_acct_key", "time_lvl_st_dt")) %>%
+  full_join(txn_mbr_lvl_6, by = c("scene_mbr_acct_key", "time_lvl_st_dt")) %>%
+  full_join(txn_mbr_lvl_7, by = c("scene_mbr_acct_key", "time_lvl_st_dt"))
+ 
+# set missig values to zero 
+txn_mbr_mth_lvl$mth_txn_amt_cin[is.na(txn_mbr_mth_lvl$mth_txn_amt_cin)]<-0
+txn_mbr_mth_lvl$mth_txn_amt_non_cin[is.na(txn_mbr_mth_lvl$mth_txn_amt_non_cin)]<-0
+txn_mbr_mth_lvl$mth_pt_redem[is.na(txn_mbr_mth_lvl$mth_pt_redem)]<-0
+txn_mbr_mth_lvl$mth_pt_issue_tot[is.na(txn_mbr_mth_lvl$mth_pt_issue_tot)]<-0
+txn_mbr_mth_lvl$mth_pt_issue_reg[is.na(txn_mbr_mth_lvl$mth_pt_issue_reg)]<-0
+txn_mbr_mth_lvl$mth_pt_issue_enrol[is.na(txn_mbr_mth_lvl$mth_pt_issue_enrol)]<-0
+txn_mbr_mth_lvl$mth_pt_issue_promo[is.na(txn_mbr_mth_lvl$mth_pt_issue_promo)]<-0
+
+# strip unwanted columns from transaction summary table
+txn_mbr_mth_lvl <- txn_mbr_mth_lvl %>%
+  mutate(mth_txn_amt_tot = mth_txn_amt_cin + mth_txn_amt_non_cin) %>%
+  filter(scene_mbr_acct_key %in% scotia_cust$scene_mbr_acct_key) %>%
+  arrange(scene_mbr_acct_key, time_lvl_st_dt) %>%
+  select(scene_mbr_acct_key, time_lvl_st_dt, mth_txn_amt_tot, mth_txn_amt_cin, mth_txn_amt_non_cin, mth_pt_redem, 
+         mth_pt_issue_tot, mth_pt_issue_reg, mth_pt_issue_enrol, mth_pt_issue_promo)
+```
+
+### select useful fields from the mbr dimension table
+```{r}
+demographics <- scene_mbr_dim %>%
+  group_by(scene_mbr_acct_key) %>%
+  filter(scene_mbr_seq_num==max((scene_mbr_seq_num))) %>%
+  select(scene_mbr_acct_key, eff_from_tmstamp, eff_to_tmstamp, brth_dt, psnl_post_cd, psnl_prov_state_cd,
+         psnl_city, gndr_desc, ed_lvl_desc, prefrd_show_tm_desc, movie_gng_frq_ref_desc, num_of_hh_pple_desc,
+         mrtl_stat_desc, lang_desc)
+```
+
+
+### feature engineering
+
+#### Member Tenure
+
+```{r}
+
+txn_mbr_mth_lvl$time_lvl_st_dt <- as.Date(txn_mbr_mth_lvl$time_lvl_st_dt)
+summary(txn_mbr_mth_lvl$time_lvl_st_dt)
+
+# member first and last active, active tenure
+first_txn <- txn_mbr_mth_lvl %>%
+  group_by(scene_mbr_acct_key) %>%
+  filter(time_lvl_st_dt == min(time_lvl_st_dt)) %>%
+  select(scene_mbr_acct_key, time_lvl_st_dt)
+
+colnames(first_txn)[2]<-"first_txn" 
+
+last_txn <- txn_mbr_mth_lvl %>%
+  group_by(scene_mbr_acct_key) %>%
+  filter(time_lvl_st_dt == max(time_lvl_st_dt)) %>%
+  select(scene_mbr_acct_key, time_lvl_st_dt)
+
+colnames(last_txn)[2]<-"last_txn" 
+
+# time lapse since last active (use max date: 2016-09-01 as last day from available data)
+# time lapse between enrollment and first spend
+mbr_tenure <- first_txn %>%
+  left_join(last_txn) %>%
+  left_join(scene_mbr_acct_dim) %>%
+  mutate(txn_tenure = last_txn - first_txn,
+         time_since_last_txn = as.Date("2016-09-01") - last_txn,
+         enrol_to_first_txn = first_txn - as.Date(scene_src_enrollment_dt)) %>%
+  select(scene_mbr_acct_key,scene_src_enrollment_dt, first_txn, last_txn, txn_tenure,  time_since_last_txn,
+         enrol_to_first_txn)
+
+mbr_tenure$enrol_to_first_txn[mbr_tenure$enrol_to_first_txn<=0]<- 0
+
+
+# binary flags for active last 3, 6, 9, 12 months
+for (i in 1:nrow(mbr_tenure)) {
+  if (mbr_tenure$time_since_last_txn[i] <= 92) {
+    mbr_tenure[i, "active_3"] <- 1
+  } else mbr_tenure[i, "active_3"] <- 0}
+
+for (i in 1:nrow(mbr_tenure)) {
+  if (mbr_tenure$time_since_last_txn[i] <= 184) {
+    mbr_tenure[i, "active_6"] <- 1
+  } else mbr_tenure[i, "active_6"] <- 0}  
+
+for (i in 1:nrow(mbr_tenure)) {
+  if (mbr_tenure$time_since_last_txn[i] <= 276) {
+    mbr_tenure[i, "active_9"] <- 1
+  } else mbr_tenure[i, "active_9"] <- 0}    
+
+for (i in 1:nrow(mbr_tenure)) {
+  if (mbr_tenure$time_since_last_txn[i] <= 366) {
+    mbr_tenure[i, "active_12"] <- 1
+  } else mbr_tenure[i, "active_12"] <- 0}  
+```
+
+#### monthly average cineplex and non-cineplex dollar spent
+#### cineplex spend ratio
+```{r}
+sp_beh <- txn_mbr_mth_lvl %>%
+  group_by(scene_mbr_acct_key) %>%
+  summarise(avg_mth_cin_sp = mean(mth_txn_amt_cin),
+            avg_mth_non_cin_sp = mean(mth_txn_amt_non_cin),
+            avg_mth_tot_sp = avg_mth_cin_sp + avg_mth_non_cin_sp,
+            cin_sp_ratio = avg_mth_cin_sp/avg_mth_tot_sp)
+```
+
+#### Spend Behavior
+
+```{r}
+# cineplex spend frequency 
+# Current data is at monthly aggregated level, individual txn level data could give us this
+
+# total points earned vs redeemed, redemption ratio
+# % regular points, % enrollment points, % promo points
+# pts to dollar ratio
+pts_beh <- txn_mbr_mth_lvl %>%
+  group_by(scene_mbr_acct_key) %>%
+  summarise(tot_pts_issue = sum(mth_pt_issue_tot),
+            tot_pts_redem = sum(mth_pt_redem),
+            redem_ratio = -tot_pts_redem/tot_pts_issue,
+            perc_reg_issue = sum(mth_pt_issue_reg)/tot_pts_issue,
+            perc_enrol_issue = sum(mth_pt_issue_enrol)/tot_pts_issue, 
+            perc_promo_issue =  sum(mth_pt_issue_promo)/tot_pts_issue,
+            pts_dllr_raio = tot_pts_issue/sum(mth_txn_amt_tot))
+
+#### redemption frequency
+#### average monthly point balance
+#### spend on visa, spend on debit, credit to debit ratio
+```
+
+
+### final table for analysis
+```{r}
+segmentation_df <- mbr_tenure %>%
+  left_join(pts_beh, by = "scene_mbr_acct_key")
+  
+segmentation_df$txn_tenure <- as.numeric(segmentation_df$txn_tenure)
+segmentation_df$time_since_last_txn <- as.numeric(segmentation_df$time_since_last_txn)
+segmentation_df$enrol_to_first_txn <- as.numeric(segmentation_df$enrol_to_first_txn)
+
+segmentation_df$enrol_to_first_txn[is.na(segmentation_df$enrol_to_first_txn)]<-0
+segmentation_df$redem_ratio[is.na(segmentation_df$redem_ratio)]<-0
+segmentation_df$perc_reg_issue[is.na(segmentation_df$perc_reg_issue)]<-0
+segmentation_df$perc_enrol_issue[is.na(segmentation_df$perc_enrol_issue)]<-0
+segmentation_df$perc_promo_issue[is.na(segmentation_df$perc_promo_issue)]<-0
+segmentation_df$pts_dllr_raio [is.na(segmentation_df$pts_dllr_raio)]<-0
+segmentation_df$pts_dllr_raio [segmentation_df$pts_dllr_raio == Inf]<-0
+summary(segmentation_df)
+
+```
+
+## demographical segmentation
+
+## behavioral segmentation
+
+### Check correlation
+```{r}
+cor(segmentation_df[ , c(5:18)])
+
+library(corrplot)
+corrplot.mixed(cor(segmentation_df[ , c(5:18)]), upper="ellipse")
+```
+
+remove variables or creat pc is necessary
+
+### Elbow test to determine the number of clusters:
+
+```{r}
+
+wss <- (nrow(segmentation_df[5:18])-1)*sum(apply(segmentation_df[5:18],2,var)) 
+for (i in 2:20) wss[i] <- sum(kmeans(segmentation_df[5:18], 
+                                     centers=i)$withinss)
+
+plot(1:20, wss, type="b", xlab="Number of Clusters",
+     ylab="Within groups sum of squares")
+```
+
+
+### K-Means clustering 
+```{r}
+fit<- kmeans(segmentation_df[5:18], 5)
+aggregate(segmentation_df[5:18],by=list(fit$cluster),FUN=mean)
+Cluster_5 <- data.frame(segmentation_df[5:18], fit$cluster)
+
+#plotting clustplot
+clusplot(Cluster_5, fit$cluster, color=TRUE, shade=TRUE, 
+         labels=2, lines=0)
+
+```

@@ -1,23 +1,18 @@
 ---
 title: "Scene Data Exploration"
-output:
-  pdf_document: default
-  html_document: default
-
+output: html_document
+date: "`r format(Sys.time(), '%d %B, %Y')`"
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_chunk$set(dev = 'png')
 ```
 
 The SCENE dataset consists of 16 tables, but we'll focus this course on the five most relevant tables. These tables describe the SCENE customers and their transactions.
 
-This document looks at each column of each table. Please sit back, relax, and enjoy the show!
-
 Load the required libraries.
 
-```{r libraries, echo=FALSE}
+```{r libraries}
 library(tidyverse)
 library(lubridate)
 library(stringr)
@@ -32,16 +27,13 @@ in_path = '/global/project/queens-mma/scene-csv/sample03/clean/'
 # Table: scene_mbr_dim
 
 ```{r}
-scene_mbr_dim <- read_csv(paste(in_path, 'scene_mbr_dim.csv', sep=""))
+scene_mbr_dim <-read_csv(paste(in_path, 'scene_mbr_dim.csv', sep=""))
 ```
 
 Here are the details of the table:
 
 ```{r}
-dim(scene_mbr_dim)
-colnames(scene_mbr_dim)
 str(scene_mbr_dim)
-summary(scene_mbr_dim)
 ```
 
 Here are the first 20 rows of the data:
@@ -52,7 +44,7 @@ head(scene_mbr_dim, n=20)
 
 ## Member Entry Sequence (scene_mbr_seq_num)
 
-This variable is not properly defined in the metadata. From the dataset, it appears that this number represents a unique entry for each customer and is used for customer record history. Whenever a member is entered in a database, s/he is assigned scene_mbr_seq_num as '1'. At the next change, this variable is changed to '2' and so on. Thus, '1' represents the first entry for the customer.
+This variable is not properly defined in metadata. From the dataset, it appears that this number represents a unique entry for each customer and is used for customer record history. Whenever a member is entered in a database, s/he is assigned scene_mbr_seq_num as '1'. At the next change, this variable is changed to '2' and so on. Thus, '1' represents the first entry for the customer.
 
 ```{r}
 summary(scene_mbr_dim$scene_mbr_seq_num)
@@ -69,6 +61,7 @@ scene_mbr_dim %>%
 
 ```
 
+Comment:
 Because of this definition of sequence number, 50% of the records are '1', while one third is '2'. Higher sequence numbers exponentially drop off. Sequence numbers can be used in combination with next parameters to  understand the trends in the number of new customers and their renewal timelines.
 
 ## Effective Timestamps (eff_from_tmstamp, eff_to_tmstamp)
@@ -83,6 +76,7 @@ scene_mbr_dim %>%
   geom_histogram(bins = 77)
 ```
 
+Comment:
 To see all the new customers,i.e, sequence number '1', there is huge sprike in March, 2010, with over 2000 entries. This must be the first time when the database was created. (bins=77 corresponds to the number of months in the database)
 
 
@@ -93,6 +87,7 @@ scene_mbr_dim %>%
   geom_histogram(bins = 77)
 ```
 
+Comment:
 Removing these initial entries and plotting again shows that new customers might have declined since 2014. 
 (However, later analysis suggest possibility of database lag. See section on 'scene_mbr_acct_dim' for more details.)
 During the year, there appears to be cyclicality as there seems to be spikes around summer months.
@@ -107,6 +102,7 @@ scene_mbr_dim %>%
   geom_histogram(bins = 77)
 ```
 
+Comment:
 In plot of sequence number '2' there are two spikes in March, 2011 and March, 2012, suggesting that the records created in March, 2010 might have been updated in bulk after 1 and 2 years respectively. There is also a spike toward the end of 2014, suggesting another bulk data ingestion.
 
 
@@ -144,6 +140,7 @@ group_by(EndDateTbl, year(EndDate))%>%
 
 ```
 
+Comment:
 35% of the customers were never renewed after their expiry in 2012. 
 Also, the proportion of customers effective after January 1, 2016 was only around 11%.
 
@@ -156,6 +153,7 @@ scene_mbr_dim %>%
   geom_histogram()
 ```
 
+Comment:
 Each sequence number can be effective for any range of values. However, the typical values are 1 year and two years.
 
 
@@ -171,7 +169,7 @@ ggplot(data = scene_mbr_dim, mapping = aes(x=brth_dt))+
   geom_bar()
 ```
 
-
+Comment:
 The distribution of birth years is positively skewed with peak around 1990.
 
 ## Postal Code (psnl_post_cd)
@@ -217,7 +215,7 @@ ggplot() +
 
 ```
 
-
+Comment:
 Distribution of scene members seem generally consistent to the Canadian population.
 One member, however, seems to have H0H (postal code for Santa Claus, no kidding!) as address. This could be a mistake or some interesting special account??
 
@@ -225,8 +223,7 @@ One member, however, seems to have H0H (postal code for Santa Claus, no kidding!
 Santa_Claus <- scene_mbr_dim %>%
   filter(psnl_post_cd == "H0H")
 ```
-
-
+Comment:
 Looking at the account residing in postal code H0H, this is some 38-old French speaking dude (or a fictious test account maybe?) who prefers to watch movies at 'Cineplex Odeon Place LaSalle' (Montreal). Look for member key '2315422' if interested...
 
 
@@ -240,19 +237,13 @@ summary(as.factor(scene_mbr_dim$psnl_prov_state_cd))
 
 
 ```{r}
-ggplot(scene_mbr_dim, aes(x = factor(psnl_prov_state_cd))) +
-  geom_bar()
-```  
-
-Ontario members accounts for over half of the member base. Here's a pie chart, just for fun.
-
-```{r}
 ggplot(scene_mbr_dim, aes(x = factor(1), fill = factor(psnl_prov_state_cd))) +
   geom_bar(width = 1)+ 
   coord_polar(theta = "y")
 ```  
 
-
+Comment:
+Ontario members accounts for over half of the member base.
 
 
 ## City (psnl_city)
@@ -263,6 +254,7 @@ The city of the address.
 length(unique(scene_mbr_dim$psnl_city))
 ```
 
+Comment:
 There are 842 unique cities represented in this sample.
 
 
@@ -289,6 +281,7 @@ scene_mbr_dim %>%
   arrange(desc(count))
 ```
 
+Comment:
 4% customers have been suspended
 
 ## Gender (gndr_desc)
@@ -311,7 +304,7 @@ group_by(scene_mbr_dim, brth_dt)%>%
   left_join(scene_mbr_dim)%>%
   ggplot() + geom_bar(mapping=aes(x=brth_dt, fill = gndr_desc), position="fill")
 ```
-
+Comments:
 55% of the members in the dataset are females.
 The ratio of female members are slightly higher than male members in most of Canadian Provinces.
 Yonger member base tend to have more male representation than do older members.
@@ -330,7 +323,7 @@ scene_mbr_dim%>%
   summarise(count=n_distinct(scene_mbr_acct_key))%>%
   arrange(desc(count))  
 ```
-
+Comments:
 More than half of the data is unavailable.
 Scotiabank Theatre Chinook and SilverCity Yorkdale are rated the highest among the preferred theatres.
 If we had the exact address of the theatres, it can be combined with the postal codes of the customers to derive more insights.
@@ -345,6 +338,7 @@ group_by(scene_mbr_dim, email_prefnc_desc)%>%
   arrange(desc(count))
 ```
 
+Comments:
 78% customers prefer HTML emails while 5% prefer plain text. 17% of preferences are unknown.
 
 ## Education Level
@@ -361,6 +355,7 @@ group_by(scene_mbr_dim, psnl_prov_state_cd)%>%
   ggplot() + geom_bar(mapping=aes(x=psnl_prov_state_cd, fill = ed_lvl_desc), position="fill")
 ```
 
+Comments:
 70% of the data is missing. 
 Educational mix among members across provinces seem different.
 
@@ -390,6 +385,7 @@ group_by(scene_mbr_dim, brth_dt)%>%
   geom_bar(mapping=aes(x=brth_dt, fill = prefrd_show_tm_desc), position="fill")
 ```
 
+Comment:
 58% of the data is missing. Of the people who have responded, 7pm seems to be the preferred movie time (39%).
 Pereferred show time seem different across cities and age groups. As expected, yonger members tend to prefer later shows.
 
@@ -407,6 +403,7 @@ scene_mbr_dim%>%
   geom_bar(mapping=aes(x=num_of_hh_pple_desc, fill = prefrd_show_tm_desc), position="fill")
 ```
 
+Comment
 57% of the data is missing. Of the people who have responded, 35% are single person households.
 There is no significant variation in the preferred timing based on the number of people in the household. However, this variable can be used for classification as it can indicate the number of kids in the household and children can be targetted with specific genre. It can also indicate potential profit opportunity size.
 
@@ -429,7 +426,7 @@ scene_mbr_dim%>%
   geom_bar(mapping=aes(x=brth_dt, fill = movie_gng_frq_ref_desc), position="fill")
 ```
 
-
+Comment:
 57% data missing.
 Customers are evenly spread over the frequency ranges 20+, 7-10, 11-20 and 3-6.
 As expected, younger members tend to watch more movies.
@@ -450,6 +447,7 @@ scene_mbr_dim%>%
   geom_bar(mapping=aes(x=mrtl_stat_desc, fill = movie_gng_frq_ref_desc), position="fill")
 ```
 
+Comment:
 37% data missing, 35% singles and 26% married or common law.
 Married or common in law members tend to watch less movies compare to other groups.
 
@@ -471,7 +469,7 @@ group_by(scene_mbr_dim, lang_desc)%>%
   geom_bar(mapping=aes(x=lang_desc, fill = psnl_prov_state_cd), position="fill")
 
 ```
-
+Comments:
 Over 90% of the customers have English as the preferred language.
 As expected, vast majority of Francophone members are from Quebect.
 
@@ -487,14 +485,13 @@ group_by(scene_mbr_dim, scene_acty_stat)%>%
   arrange(desc(count))
 ```
 
+Comment:
 48% of the data is missing and 49% data is "Unconfirmed".
 
 
 
 
 # Table: scene_member_acct_dim
-
-This table holds data on member accounts. Each member (from the above `scene_mbr_dim` table) belongs to a member account. Think of it like a family: there would be one account, but many members belonging to that account.
 
 ```{r}
 scene_mbr_acct_dim <- read_csv(paste(in_path, 'scene_mbr_acct_dim.csv', sep=""))
@@ -503,10 +500,7 @@ scene_mbr_acct_dim <- read_csv(paste(in_path, 'scene_mbr_acct_dim.csv', sep=""))
 Here are the details of the table:
 
 ```{r}
-dim(scene_mbr_acct_dim)
-colnames(scene_mbr_acct_dim)
 str(scene_mbr_acct_dim)
-summary(scene_mbr_acct_dim)
 ```
 
 
@@ -521,10 +515,10 @@ head(scene_mbr_acct_dim, n=20)
 
 
 Possible values:
-- `E` = Enrolled
-- `U` = Unenrolled
-- `P` = Pending
-- `C` = Canceled
+E = Enrolled
+U = Unenrolled
+P = Pending
+C = Canceled
 
 ```{r}
 group_by(scene_mbr_acct_dim, enrollment_stat_cd)%>%
@@ -532,7 +526,7 @@ group_by(scene_mbr_acct_dim, enrollment_stat_cd)%>%
   arrange(desc(count))
 ```
 
-In this sample dataset, 5,489 (98%) enrolled and 84(2%) unerolled.
+Comment: In this sample dataset, 5,489 (98%) enrolled and 84(2%) unerolled.
 
 ## cncl_dt
 
@@ -552,7 +546,7 @@ scene_mbr_acct_dim%>%
   geom_histogram()
 ```
 
-
+Comment: 
 98% of the field is 'null', which is expected as most people would not call in to cancel a loyalty account even if they no longer use it.
 The number of cancellation seems to be increasing over time. However, this could be misleading as we might see the number of accounts growing over time as well. We should look at cancellation in conjunction with the number of accounts over time.
 Comparing the number of accounts having a cancel date with enrollment status above, 'U' and 'C' seem to be equivalent.
@@ -567,6 +561,7 @@ scene_mbr_acct_dim%>%
   geom_histogram()
 ```
 
+Comment:
 The number of enrollment seems to have significantly dropped since 2014, which seem unintuitive.
 A possibility that could exlain what we see here is the time lag between when an account is enrolled vs. when the data enters into the database we are using. See next point below.
 
@@ -589,15 +584,160 @@ ggplot(data=scene_mbr_acct_dim) +
 
 ```
 
-Approximatly 40% of accounts in the tiny dataset have an effective date of 2010-03-03. This seems to be the date where enrollment data (from Maritz) started to be ingested into a new database. 
+Comment: 
+Approximatly 40% of accounts in the Tiny dataset have an effective date of 2010-03-03. This seems to be the date where enrollment data (from Maritz) started to be ingested into a new database. 
 The range of date lag between the original enrollment date and account effective date decreases linearly as time progresses. This further confirms the theory above--newly enrolled account might experience a range of lags before they are reflected in this database.
 
 
 
+# Table: scene_pt_tp_dim
+
+This table provides descriptive information, such as point types, merchant names and transaction source, to transactions recorded in the 'scene_pt_fact' table. 
+
+This table does not provide much value by itself. It is mapped to the 'scene_pt_fact' table and used as descriptors to the transactions recorded in that table.
+
+```{r}
+scene_pt_tp_dim <- read_csv(paste(in_path, 'scene_pt_tp_dim.csv', sep=""))
+```
+
+Here are the details of the table:
+
+```{r}
+str(scene_pt_tp_dim)
+```
+
+
+Here are the first 20 rows of the data:
+
+```{r}
+head(scene_pt_tp_dim, n=20)
+```
+
+
+
+# Table: iwd_time
+
+This table also does not provide much value by itself. It is mapped to the 'scene_pt_fact' table and provides time descriptions to the transactions recorded in that table.
+
+```{r}
+iwd_time <- read_csv(paste(in_path, 'iwd_time.csv', sep=""))
+```
+
+Here are the details of the table:
+
+```{r}
+str(iwd_time)
+```
+
+
+Here are the first 20 rows of the data:
+
+```{r}
+head(iwd_time, n=20)
+```
+
+## time level (time_lvl)
+
+```{r}
+summary(as.factor(iwd_time$time_lvl))
+```
+
+Comment:
+This field categorizes time_key into 4 levels: Day, Month, Quarter, Year
+
+
+## month (mo_clndr_code)
+
+This is the name of the calendar month.
+
+```{r}
+summary(as.factor(iwd_time$mo_clndr_code))
+```
+
+
+NOTE: 
+* The scene_pt_fact table gives us time keys at the month level. So, for purpose of analysing point transactions, we only need to map the 'mo_clndr_code' field to the scene_pt_fact table. 'time_lvl' field can be used to select "Month" level keys only.
+* Although other fields from this table cannot be linked to point transactions, the following fields from the 'iwd_time' table provides some interesting facts.
+
+
+### anul_clndr_code
+
+This indicates the calendar year of the corresponding time key.
+
+```{r}
+summary(iwd_time$anul_clndr_code)
+```
+
+Comment: 
+earliest calendar year stamp: 1994, latest calendar year stamp: 2021
+
+
+
+### anual_fncl_code
+This indicates the bank's fiscal year of the corresponding time key.
+
+```{r}
+summary(iwd_time$anul_fncl_code)
+```
+
+Comment: 
+earliest fiscal year stamp: 1994, latest fiscal year stamp: 2021
+
+
+Check if calendar year always equal fiscal year, Returned False.
+```{r}
+all(iwd_time$anul_clndr_code == iwd_time$anul_fncl_code)
+
+iwd_time %>%
+  filter(anul_clndr_code != anul_fncl_code) %>%
+  select(mo_clndr_code) %>%
+  group_by(mo_clndr_code) %>%
+  count(mo_clndr_code)
+```
+
+Comment: 
+Looking at the month where calendar year differs from fiscal year, November seems to be the start of fiscal year at Scotiabank.
+
+
+### qtrly_clndr_code
+This field indicates the calendar quarter of the corresponding time_key.
+
+```{r}
+summary(as.factor(iwd_time$qtrly_clndr_code))
+
+iwd_time %>%
+  filter(qtrly_clndr_code == "null") %>%
+  select(time_lvl) %>%
+  group_by(time_lvl) %>%
+  count(time_lvl)
+```
+
+Comment: 
+28 missing values found from quarter code, all for year level time keys.
+
+### qtrly_fncl_code
+This field indicates the fiscal quarter of the corresponding time_key.
+```{r}
+summary(as.factor(iwd_time$qtrly_fncl_code))
+
+iwd_time %>%
+  filter(qtrly_fncl_code == "null") %>%
+  select(time_lvl) %>%
+  group_by(time_lvl) %>%
+  count(time_lvl)
+
+iwd_time%>%
+  filter(!time_lvl %in% c("Year", "Quarter") ) %>%
+  select(qtrly_fncl_code, mo_clndr_code) %>%
+  distinct(qtrly_fncl_code, mo_clndr_code)
+```
+
+Comment: 
+fiscal qtr 1: Nov-Jan, fiscal qtr 2: Feb-Apr, fiscal qtr 3: May-Jul, fiscal qtr 4: Aug-Oct
+
+
 
 # Table: scene_pt_fact
-
-This table holds the actual transactions. For your convenience, it has already been joined with two other tables, `iwd_time` and `scene_tp_pt_fact`, both described below.
 
 ```{r}
 scene_pt_fact <- read_csv(paste(in_path, 'scene_pt_fact.csv', sep=""))
@@ -606,10 +746,7 @@ scene_pt_fact <- read_csv(paste(in_path, 'scene_pt_fact.csv', sep=""))
 Here are the details of the table:
 
 ```{r}
-dim(scene_pt_fact)
-colnames(scene_pt_fact)
 str(scene_pt_fact)
-summary(scene_pt_fact)
 ```
 
 Here are the first 20 rows of the data:
@@ -621,11 +758,11 @@ head(scene_pt_fact, n=20)
 ## Points (pt) & Transaction Amount (txn_amt)
 
 These are the number of points earned or deducted for each transaction. They may be: 
-1. Linked to a financial transaction, in which case the transaction column will have dollar value. 
-2. Linked to an event (such as new account, referral bonus, redemptions, etc.), in which case the transaction column will be `NULL`.
+1.  linked to a financial transaction on Scotiabank product, in which case transaction column will have dollar value 
+OR
+2.  linked to an event (such as new account, referral bonus, redemptions, etc.), in which case the transaction column will have NULL
 
 High level summary per customer:
-
 ```{r}
 summary<-
 group_by(scene_pt_fact, scene_mbr_acct_key)%>%
@@ -647,7 +784,8 @@ summary%>%
   geom_histogram(bins = 100)  
 ```
 
-There are 328,357 customers in the sample, which have a wide range of transactions and points.
+Comment: 
+There are 328357 customers in the sample, which have a wide range of transactions and points.
 The number of transactions show negative exponential distribution. The number of points net of redemptions is also extremely skewed to the left. We need to further analyze transaction inflow and outflow instead of solely looking at simple aggregation of points per member.
 
 
@@ -675,16 +813,15 @@ group_by(scene_pt_fact, txn_tp_3)%>%
   arrange(desc(count))
 ```
 
-
+Comment:
 Over 91% of transaction involves issuance(collection) of points, vs. only 9% of transactions were related to redemptions. So averagely speaking, members need to collect points over 10 purchases/activities before they redeem pts for once.
-
 95 percent of point transactions are tied to regular purchases and redemptions.
 At least 45% of activities (purchases and redemptions) happen outside of cineplex theaters (example: purchase on scene debit/credit cards outside of Cineplex).
 
 
-## Points issued 
-
 ```{r}
+# Points issued 
+
 scene_pt_fact%>%
   filter(txn_tp_1=="issuance")%>%
   ggplot(mapping = aes(x=pt))+
@@ -701,7 +838,7 @@ group_by(scene_pt_fact, txn_tp_3)%>%
   arrange(desc(count))
 
 ```
-
+Comment:
 94% of issuances and 88% of points issued were associated with regular transactions.
 50% of points issued happened outside of cineplex theaters.
 
@@ -710,13 +847,14 @@ scene_pt_fact %>%
   filter(txn_tp_1=="issuance")%>%
   ggplot(aes(x=as.numeric(txn_amt, na.rm=TRUE), y=as.numeric(pt, na.rm=TRUE), group=txn_tp_2, colour=txn_tp_2)) + geom_point()
 ```
-
+Comment:
 While enrollment and promotional bonuses are typically not involving dollar transactions, regular points seems to follow a few specific earn rates, which likely represent earn rates at cineplex vs. non-cineplex locations.
 Note that sometimes, dollar spend triggers negative points, these could be redemptions at the same time of purchases, or potentially data base errors.
 
-## Redemptions
+
 
 ```{r}
+# redemptions
 scene_pt_fact%>%
   filter(txn_tp_1=="redemption")%>%
   ggplot(mapping = aes(x=pt))+
@@ -727,11 +865,11 @@ group_by(scene_pt_fact, txn_tp_3)%>%
   summarise(count=n(), total_pts = sum(as.numeric(pt), na.rm=TRUE))%>%
   arrange(desc(count))
 ```
-
+Comment: 
 The number of points redeemed tends to be multipliers of 1000, which is worth a general admission ticket.
 98% of points were redeemed at cineplex theaters.
 
-## Timelines
+Timelines
 
 ```{r}
 group_by(scene_pt_fact, time_lvl_end_dt, txn_tp_1)%>%
@@ -748,7 +886,7 @@ group_by(scene_pt_fact, time_lvl_end_dt, txn_tp_3)%>%
   summarise(mth_pts = sum(as.numeric(pt, na.rm=TRUE)))%>%
   ggplot() + geom_line(aes(x=time_lvl_end_dt, y=mth_pts, group=txn_tp_3, colour=txn_tp_3))
 ```
-
+Comment:
 More and more points are being issued for day-to-day transactions while enrollment bonues seems to have decreased post-2010.
 Non-cin transactions look perfectly cyclical on a yearly basis.
 Although issuance at cineplext vs. other places seem to follow the same overall trend, high & lows don't seem to happen in the same months.
@@ -762,165 +900,9 @@ group_by(scene_pt_fact, mo_clndr_code, txn_tp_3)%>%
   summarise(mth_pts = sum(as.numeric(pt, na.rm=TRUE)))%>%
   ggplot() + geom_line(aes(x=mo_clndr_code, y=mth_pts, group=txn_tp_3, colour=txn_tp_3))
 ```
-
+Comment:
 A quick view at the aggregate month level, we see that cineplex pts issuane peaks in the summer, while non-cin points peaks in December as well.
 
 
-
-
-
-
-# Table: scene_pt_tp_dim
-
-This table provides descriptive information, such as point types, merchant names and transaction source, to transactions recorded in the 'scene_pt_fact' table. 
-
-This table does not provide much value by itself. It has already been joined to the 'scene_pt_fact' table, and thus will probably not be useful on its own.
-
-
-```{r}
-scene_pt_tp_dim <- read_csv(paste(in_path, 'scene_pt_tp_dim.csv', sep=""))
-```
-
-Here are the details of the table:
-
-```{r}
-dim(scene_pt_tp_dim)
-colnames(scene_pt_tp_dim)
-str(scene_pt_tp_dim)
-summary(scene_pt_tp_dim)
-```
-
-
-Here are the first 20 rows of the data:
-
-```{r}
-head(scene_pt_tp_dim, n=20)
-```
-
-
-
-
-# Table: iwd_time
-
-This table lists dates and times. This table also does not provide much value by itself. It is mapped to the 'scene_pt_fact' table and provides time descriptions to the transactions recorded in that table.
-
-```{r}
-iwd_time <- read_csv(paste(in_path, 'iwd_time.csv', sep=""))
-```
-
-Here are the details of the table:
-
-```{r}
-dim(iwd_time)
-colnames(iwd_time)
-str(iwd_time)
-summary(iwd_time)
-```
-
-
-Here are the first 20 rows of the data:
-
-```{r}
-head(iwd_time, n=20)
-```
-
-## time level (time_lvl)
-
-```{r}
-summary(as.factor(iwd_time$time_lvl))
-```
-
-
-This field categorizes time_key into 4 levels: Day, Month, Quarter, Year
-
-
-## month (mo_clndr_code)
-
-This is the name of the calendar month.
-
-```{r}
-summary(as.factor(iwd_time$mo_clndr_code))
-```
-
-
-NOTE: 
-* The scene_pt_fact table gives us time keys at the month level. So, for purpose of analysing point transactions, we only need to map the 'mo_clndr_code' field to the scene_pt_fact table. 'time_lvl' field can be used to select "Month" level keys only.
-* Although other fields from this table cannot be linked to point transactions, the following fields from the 'iwd_time' table provides some interesting facts.
-
-
-## anul_clndr_code
-
-This indicates the calendar year of the corresponding time key.
-
-```{r}
-summary(iwd_time$anul_clndr_code)
-```
-
- 
-earliest calendar year stamp: 1994, latest calendar year stamp: 2021
-
-
-
-## anual_fncl_code
-This indicates the bank's fiscal year of the corresponding time key.
-
-```{r}
-summary(iwd_time$anul_fncl_code)
-```
-
- 
-earliest fiscal year stamp: 1994, latest fiscal year stamp: 2021
-
-
-Check if calendar year always equal fiscal year, Returned False.
-```{r}
-all(iwd_time$anul_clndr_code == iwd_time$anul_fncl_code)
-
-iwd_time %>%
-  filter(anul_clndr_code != anul_fncl_code) %>%
-  select(mo_clndr_code) %>%
-  group_by(mo_clndr_code) %>%
-  count(mo_clndr_code)
-```
-
- 
-Looking at the month where calendar year differs from fiscal year, November seems to be the start of fiscal year at Scotiabank.
-
-
-## qtrly_clndr_code
-This field indicates the calendar quarter of the corresponding time_key.
-
-```{r}
-summary(as.factor(iwd_time$qtrly_clndr_code))
-
-iwd_time %>%
-  filter(qtrly_clndr_code == "null") %>%
-  select(time_lvl) %>%
-  group_by(time_lvl) %>%
-  count(time_lvl)
-```
-
- 
-28 missing values found from quarter code, all for year level time keys.
-
-## qtrly_fncl_code
-This field indicates the fiscal quarter of the corresponding time_key.
-```{r}
-summary(as.factor(iwd_time$qtrly_fncl_code))
-
-iwd_time %>%
-  filter(qtrly_fncl_code == "null") %>%
-  select(time_lvl) %>%
-  group_by(time_lvl) %>%
-  count(time_lvl)
-
-iwd_time%>%
-  filter(!time_lvl %in% c("Year", "Quarter") ) %>%
-  select(qtrly_fncl_code, mo_clndr_code) %>%
-  distinct(qtrly_fncl_code, mo_clndr_code)
-```
-
- 
-fiscal qtr 1: Nov-Jan, fiscal qtr 2: Feb-Apr, fiscal qtr 3: May-Jul, fiscal qtr 4: Aug-Oct
 
 
