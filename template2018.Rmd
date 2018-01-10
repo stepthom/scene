@@ -1,0 +1,124 @@
+---
+title: "Scene 2018 Template Script"
+output: html_document
+---
+
+Load the required libraries.
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(stringr)
+library(sparklyr)
+library(data.table)
+```
+
+
+# Loading the data (without sparklyr)
+
+```{r}
+in_path = '/global/project/queens-mma/scene2018/sample01/'
+
+file_name = 'SceneAnalytics.dbo.SP_Points.csv'
+t = fread(paste(in_path, file_name, sep=""), sep=",", header=TRUE)
+
+str(t)
+head(t)
+```
+
+Just for fun, let's calculate the number of points per pointtypeid
+
+```{r}
+t %>%
+  group_by(pointtypeid) %>%
+  summarise(n = n(), sum = sum(pointtypeid)) %>%
+  arrange(desc(sum))
+```
+
+
+# Loading the data (with sparklyr)
+
+Connect to Spark.
+
+```{r}
+sc <- spark_connect(master='yarn-client')
+```
+
+Read in a table.
+
+```{r}
+hdfs_path = '/user/hpc3552/scene2018/sample01/'
+
+file_name = 'SceneAnalytics.dbo.SP_Points.csv'
+
+points = spark_read_csv(sc, name='sp_points',  path=paste(hdfs_path, file_name, sep=""), 
+                  header = TRUE, delimiter = ",")
+```
+
+Now, we can use dplyr with the Spark table, just like we did above with the regular table:
+
+```{r}
+points %>%
+  group_by(pointtypeid) %>%
+  summarise(n = n(), sum = sum(pointtypeid)) %>%
+  arrange(desc(sum))
+```
+
+The sky is the limit!
+
+
+# Advanced Ideas for Opening all the Tables
+
+To make opening all 20 files easier, and less copy-and-paste, you may want to use a loop. Here's one way to do it.
+
+```{r}
+
+# First, put all the file names in a list, so we can loop through them.
+file_names = c(
+"SceneAnalytics.dbo.LK_account_unique_member_identifier_sample10.csv",
+"SceneAnalytics.dbo.SP_AccountBalance.csv",
+"SceneAnalytics.dbo.SP_AccountHistory.csv",
+"SceneAnalytics.dbo.SP_AccountHistoryType.csv",
+"SceneAnalytics.dbo.SP_ActivityStatusScotiaScene_E.csv",
+"SceneAnalytics.dbo.SP_CineplexStore.csv",
+"SceneAnalytics.dbo.SP_CustomerDetail.csv",
+"SceneAnalytics.dbo.SP_CustomerExtension.csv",
+"SceneAnalytics.dbo.SP_DimProxyLocation.csv",
+"SceneAnalytics.dbo.SP_FactAttribute.csv",
+"SceneAnalytics.dbo.SP_FactEnrollment.csv",
+"SceneAnalytics.dbo.SP_LocationCARA.csv",
+"SceneAnalytics.dbo.SP_Location.csv",
+"SceneAnalytics.dbo.SP_Partner_E.csv",
+"SceneAnalytics.dbo.SP_Points.csv",
+"SceneAnalytics.dbo.SP_PointsType.csv",
+"SceneAnalytics.dbo.SP_PointTypeStatistics.csv",
+"SceneAnalytics.dbo.SP_ProxyPointTransaction_10.csv",
+"SceneAnalytics.dbo.SP_QualityActivity.csv",
+"SceneAnalytics.dbo.SP_Source.csv"
+)
+
+# Spark wants you to give each table a name; we can't have dots in the name, so remove them here.
+tbl_names = file_names
+tbl_names = gsub(".csv", "", tbl_names)
+tbl_names = gsub("SceneAnalytics.dbo.", "", tbl_names)
+
+# This list will hold all of the actual Spark tables that have been read in.
+tbls = list()
+
+# Now, actually loop through the list, open each file, and save the results into `tbls`
+for (i in 1:length(file_names)){
+  tmp <- spark_read_csv(sc, name=tbl_names[i], path=paste(hdfs_path, file_names[i], sep=""), 
+                        header = TRUE, delimiter = ",")
+  
+  tbls[tbl_names[i]] = list(tmp)
+}
+```
+
+
+Let's look at one of the tables, just to see how it works:
+
+```{r}
+tbls$SP_AccountBalance %>%
+  arrange(PointsTotal, decreasing = TRUE) %>%
+  head()
+```
